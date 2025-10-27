@@ -6,7 +6,7 @@
  * It intelligently uses the best available server method (GD, ImageMagick, or exec)
  * and includes caching, robust error handling, and fallback mechanisms.
  *
- * @version 1.0 - Filename suffix is now conditional on quality setting.
+ * @version 1.1 - Fixed compatibility with Timber 2.x and direct string URLs
  * @author Francesco Zeno Selva
  *
  * Installation:
@@ -19,7 +19,7 @@ use Timber\Image;
 class AVIFConverter {
 
     // -- Configuration Constants --
-    const DEFAULT_QUALITY = 75; // Default AVIF quality (1-100)
+    const DEFAULT_QUALITY = 80; // Default AVIF quality (1-100)
     const ENABLE_DEBUG_LOGGING = false; // Set to false in production to disable logging.
 
     // -- Internal Constants --
@@ -90,24 +90,73 @@ class AVIFConverter {
      * @return array Containing 'path' and 'url'.
      */
     private static function get_image_details($src) {
+        // Handle Timber\Image objects
         if ($src instanceof \Timber\Image) {
             return ['path' => $src->file_loc, 'url' => $src->src];
         }
 
+        // Handle string URLs
         if (is_string($src)) {
             $url = $src;
+            
+            // Check if it's a theme file (not in uploads directory)
+            $theme_dir = get_template_directory();
+            $theme_url = get_template_directory_uri();
+            
+            if (str_starts_with($url, $theme_url)) {
+                $path = str_replace($theme_url, $theme_dir, $url);
+                return ['path' => $path, 'url' => $url];
+            }
+            
+            // Check if it's in the uploads directory
             $upload_dir = wp_upload_dir();
             if (str_starts_with($url, $upload_dir['baseurl'])) {
                 $path = str_replace($upload_dir['baseurl'], $upload_dir['basedir'], $url);
                 return ['path' => $path, 'url' => $url];
             }
-            $image = new \Timber\Image($url);
-            return ['path' => $image->file_loc, 'url' => $image->src];
+            
+            // Try to handle attachment URLs using Timber's factory method
+            try {
+                // For Timber 2.x, use the factory method instead of constructor
+                if (method_exists('\Timber\Timber', 'get_image')) {
+                    $image = \Timber\Timber::get_image($url);
+                } elseif (method_exists('\Timber\ImageHelper', 'get_image')) {
+                    $image = \Timber\ImageHelper::get_image($url);
+                } else {
+                    // Fallback: try to extract attachment ID from URL
+                    $attachment_id = self::get_attachment_id_from_url($url);
+                    if ($attachment_id) {
+                        $image = \Timber\Timber::get_post($attachment_id);
+                    } else {
+                        $image = null;
+                    }
+                }
+                
+                if ($image && isset($image->file_loc)) {
+                    return ['path' => $image->file_loc, 'url' => $image->src];
+                }
+            } catch (\Exception $e) {
+                self::log("Error creating Timber image from URL: " . $e->getMessage());
+            }
+            
+            // Final fallback: return URL as-is with no conversion
+            return ['path' => null, 'url' => $url];
         }
 
-        return ['path' => null, 'url' => '' ];
+        return ['path' => null, 'url' => ''];
     }
 
+    /**
+     * Helper method to get attachment ID from URL.
+     *
+     * @param string $url The image URL.
+     * @return int|null The attachment ID or null if not found.
+     */
+    private static function get_attachment_id_from_url($url) {
+        global $wpdb;
+        $attachment = $wpdb->get_col($wpdb->prepare("SELECT ID FROM {$wpdb->posts} WHERE guid='%s';", $url));
+        return !empty($attachment) ? $attachment[0] : null;
+    }
 
     /**
      * Cycles through available conversion methods until one succeeds.
@@ -204,7 +253,6 @@ class AVIFConverter {
     /**
      * Derives the target '.avif' path from the source path.
      */
-    // CHANGED: This function now makes the quality suffix conditional.
     private static function get_avif_path($file_path, $quality) {
         $filename = pathinfo($file_path, PATHINFO_FILENAME);
         $dirname = pathinfo($file_path, PATHINFO_DIRNAME);
