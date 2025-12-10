@@ -71,31 +71,33 @@ class Timber_AVIF_Converter {
      * Register Twig filters
      */
     public static function add_twig_filters($twig) {
-        // Check if filters already exist (e.g., from v2.5 theme file)
-        // If they exist, plugin takes priority and will override them
+        // Only register toavif filter (towebp is built into Timber core)
+        // Check if toavif already exists (e.g., from v2.5 theme file)
+        $existing_filter = false;
         try {
-            if (!$twig->getFilter('toavif')) {
-                $twig->addFilter(new \Twig\TwigFilter('toavif', [__CLASS__, 'convert_to_avif']));
-            }
+            $existing_filter = $twig->getFilter('toavif');
         } catch (\Exception $e) {
-            // Filter already exists, skip
+            // getFilter might throw, treat as not existing
         }
 
-        try {
-            if (!$twig->getFilter('towebp')) {
-                $twig->addFilter(new \Twig\TwigFilter('towebp', [__CLASS__, 'convert_to_webp']));
-            }
-        } catch (\Exception $e) {
-            // Filter already exists, skip
+        if (!$existing_filter) {
+            $twig->addFilter(new \Twig\TwigFilter('toavif', [__CLASS__, 'convert_to_avif']));
         }
 
+        // Add smart filter (new in v3.0)
+        $existing_smart = false;
         try {
-            if (!$twig->getFilter('smart')) {
-                $twig->addFilter(new \Twig\TwigFilter('smart', [__CLASS__, 'get_best_format']));
-            }
+            $existing_smart = $twig->getFilter('smart');
         } catch (\Exception $e) {
-            // Filter already exists, skip
+            // getFilter might throw, treat as not existing
         }
+
+        if (!$existing_smart) {
+            $twig->addFilter(new \Twig\TwigFilter('smart', [__CLASS__, 'get_best_format']));
+        }
+
+        // Note: We don't register 'towebp' as it's built into Timber core
+        // Users should continue using Timber's built-in |towebp filter
 
         return $twig;
     }
