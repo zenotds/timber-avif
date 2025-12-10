@@ -1,3 +1,5 @@
+# WARNING: plugin is broken at |filter level. need more work.
+
 # Timber AVIF Converter
 
 A powerful AVIF and WebP image conversion solution for WordPress + Timber projects.
