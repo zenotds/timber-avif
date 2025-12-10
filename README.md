@@ -1,3 +1,5 @@
+# WARNING: plugin is broken at |filter level. need more work.
+
 # Timber AVIF Converter
 
 A single-file, dependency-free helper to add a powerful `|toavif` filter to your Timber 2.x projects in WordPress.
