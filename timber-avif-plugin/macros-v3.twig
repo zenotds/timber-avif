@@ -1,0 +1,154 @@
+{#
+  Timber AVIF Plugin v3.0 - Responsive Image Macro
+
+  Requires: Timber AVIF Plugin v3.0+
+
+  This macro uses the plugin's image.avif and image.webp properties
+  instead of Twig filters, avoiding filter registration conflicts.
+
+  The plugin automatically generates AVIF and WebP versions on upload,
+  and the image object automatically has .avif and .webp properties
+  that return the URLs if the files exist.
+
+  Usage:
+    {% import 'macros-v3.twig' as img %}
+    {{ img.image(post.thumbnail, {
+        sizes: {
+            'xs': [800],
+            'sm': [1200],
+            'md': [1600],
+            'lg': [2400]
+        }
+    }) }}
+#}
+
+{% macro image(image, options = {}) %}
+    {% set defaults = {
+        sizes: null,
+        breakpoints: {
+            'xs': '0rem',
+            'sm': '40rem',
+            'md': '48rem',
+            'lg': '64rem',
+            'xl': '80rem',
+            '2xl': '96rem'
+        },
+        pictureClass: '',
+        imgClass: 'object-cover object-center h-full w-full mx-auto',
+        loading: 'lazy',
+        decoding: 'async',
+        avif: true,
+        webp: true
+    } %}
+
+    {% set config = defaults|merge(options) %}
+
+    {# Simple render when no responsive sizes are provided #}
+    {% if config.sizes is null %}
+        <picture class="picture {{ config.pictureClass }}">
+            {# Plugin automatically adds .avif and .webp properties to Timber Image objects #}
+            {% if config.avif and image.avif %}
+                <source srcset="{{ image.avif }}" type="image/avif"/>
+            {% endif %}
+            {% if config.webp and image.webp %}
+                <source srcset="{{ image.webp }}" type="image/webp"/>
+            {% endif %}
+            <img {% if config.imgClass %} class="{{ config.imgClass }}" {% endif %} src="{{ image.src }}" {% if image.title %} alt="{{ image.title }}" {% endif %} {% if config.loading %} loading="{{ config.loading }}" {% endif %} {% if config.decoding %} decoding="{{ config.decoding }}" {% endif %} {% if image.width %} width="{{ image.width }}" {% endif %} {% if image.height %} height="{{ image.height }}" {% endif %}/>
+        </picture>
+    {% else %}
+
+    {% set maxResize = 2560 %}
+    {% set imageWidth = image.width %}
+    {% set imageHeight = image.height %}
+
+    {% set maxDimension = imageWidth > imageHeight ? imageWidth : imageHeight %}
+    {% set scaleFactor = maxDimension > maxResize ? (maxResize / maxDimension) : 1 %}
+
+    {% set normalizedSizes = {
+        'xs': config.sizes.xs is defined ? config.sizes.xs : [imageWidth],
+        'sm': config.sizes.sm is defined ? config.sizes.sm : (config.sizes.xs is defined ? config.sizes.xs : [imageWidth]),
+        'md': config.sizes.md is defined ? config.sizes.md : (config.sizes.sm is defined ? config.sizes.sm : (config.sizes.xs is defined ? config.sizes.xs : [imageWidth])),
+        'lg': config.sizes.lg is defined ? config.sizes.lg : (config.sizes.md is defined ? config.sizes.md : (config.sizes.sm is defined ? config.sizes.sm : (config.sizes.xs is defined ? config.sizes.xs : [imageWidth]))),
+        'xl': config.sizes.xl is defined ? config.sizes.xl : (config.sizes.lg is defined ? config.sizes.lg : (config.sizes.md is defined ? config.sizes.md : (config.sizes.sm is defined ? config.sizes.sm : (config.sizes.xs is defined ? config.sizes.xs : [imageWidth])))),
+        '2xl': config.sizes['2xl'] is defined ? config.sizes['2xl'] : (config.sizes.xl is defined ? config.sizes.xl : (config.sizes.lg is defined ? config.sizes.lg : (config.sizes.md is defined ? config.sizes.md : (config.sizes.sm is defined ? config.sizes.sm : (config.sizes.xs is defined ? config.sizes.xs : [imageWidth])))))
+    } %}
+
+    {% set sourceConfigs = [
+        {
+            'key': 'xs',
+            'media': '(min-width: ' ~ config.breakpoints.xs ~ ') and (max-width: ' ~ config.breakpoints.sm ~ ')'
+        },
+        {
+            'key': 'sm',
+            'media': '(min-width: ' ~ config.breakpoints.sm ~ ') and (max-width: ' ~ config.breakpoints.md ~ ')'
+        },
+        {
+            'key': 'md',
+            'media': '(min-width: ' ~ config.breakpoints.md ~ ') and (max-width: ' ~ config.breakpoints.lg ~ ')'
+        },
+        {
+            'key': 'lg',
+            'media': '(min-width: ' ~ config.breakpoints.lg ~ ') and (max-width: ' ~ config.breakpoints.xl ~ ')'
+        },
+        {
+            'key': 'xl',
+            'media': '(min-width: ' ~ config.breakpoints.xl ~ ') and (max-width: ' ~ config.breakpoints['2xl'] ~ ')'
+        },
+        {
+            'key': '2xl',
+            'media': null
+        }
+    ] %}
+
+    {% set pictureSources = [] %}
+
+    {% for source in sourceConfigs %}
+        {% set dims = normalizedSizes[source.key] %}
+        {% set targetWidth = (dims[0] is defined ? dims[0] : imageWidth) * scaleFactor %}
+        {% set targetHeight = dims[1] is defined ? dims[1] * scaleFactor : null %}
+
+        {# Resize creates JPG - plugin extends the resized Image object with .avif and .webp properties #}
+        {% set resized1x = image|resize(targetWidth, targetHeight) %}
+        {% set resized2x = image|resize(targetWidth * 2, targetHeight is not null ? targetHeight * 2 : null) %}
+
+        {% set pictureSources = pictureSources|merge([{
+            'media': source.media,
+            'resized1x': resized1x,
+            'resized2x': resized2x
+        }]) %}
+    {% endfor %}
+
+    {% set baseSize = normalizedSizes['2xl'] %}
+    {% set baseWidth = baseSize[0] %}
+    {% set baseHeight = baseSize[1] is defined ? baseSize[1] : null %}
+
+    <picture class="picture {{ config.pictureClass }}">
+        {# AVIF sources - plugin automatically generated these on upload/resize #}
+        {% if config.avif %}
+            {% for source in pictureSources %}
+                {# Check if both 1x and 2x resized images have AVIF versions #}
+                {% if source.resized1x.avif and source.resized2x.avif %}
+                    <source {% if source.media %}media="{{ source.media }}" {% endif %}srcset="{{ source.resized1x.avif }} 1x, {{ source.resized2x.avif }} 2x" type="image/avif"/>
+                {% endif %}
+            {% endfor %}
+        {% endif %}
+
+        {# WebP sources - plugin generated these too #}
+        {% if config.webp %}
+            {% for source in pictureSources %}
+                {% if source.resized1x.webp and source.resized2x.webp %}
+                    <source {% if source.media %}media="{{ source.media }}" {% endif %}srcset="{{ source.resized1x.webp }} 1x, {{ source.resized2x.webp }} 2x" type="image/webp"/>
+                {% endif %}
+            {% endfor %}
+        {% endif %}
+
+        {# Original format sources - fallback #}
+        {% for source in pictureSources %}
+            <source {% if source.media %}media="{{ source.media }}" {% endif %}srcset="{{ source.resized1x.src }} 1x, {{ source.resized2x.src }} 2x"/>
+        {% endfor %}
+
+        {# Fallback img tag #}
+        <img {% if config.imgClass %} class="{{ config.imgClass }}" {% endif %} src="{{ image|resize(baseWidth, baseHeight).src }}" {% if image.title %} alt="{{ image.title }}" {% endif %} {% if config.loading %} loading="{{ config.loading }}" {% endif %} {% if config.decoding %} decoding="{{ config.decoding }}" {% endif %} width="{{ baseWidth }}" {% if baseHeight %} height="{{ baseHeight }}" {% endif %}/>
+    </picture>
+    {% endif %}
+{% endmacro %}
