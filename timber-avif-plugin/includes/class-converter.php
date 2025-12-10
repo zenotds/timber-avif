@@ -71,9 +71,32 @@ class Timber_AVIF_Converter {
      * Register Twig filters
      */
     public static function add_twig_filters($twig) {
-        $twig->addFilter(new \Twig\TwigFilter('toavif', [__CLASS__, 'convert_to_avif']));
-        $twig->addFilter(new \Twig\TwigFilter('towebp', [__CLASS__, 'convert_to_webp']));
-        $twig->addFilter(new \Twig\TwigFilter('smart', [__CLASS__, 'get_best_format']));
+        // Check if filters already exist (e.g., from v2.5 theme file)
+        // If they exist, plugin takes priority and will override them
+        try {
+            if (!$twig->getFilter('toavif')) {
+                $twig->addFilter(new \Twig\TwigFilter('toavif', [__CLASS__, 'convert_to_avif']));
+            }
+        } catch (\Exception $e) {
+            // Filter already exists, skip
+        }
+
+        try {
+            if (!$twig->getFilter('towebp')) {
+                $twig->addFilter(new \Twig\TwigFilter('towebp', [__CLASS__, 'convert_to_webp']));
+            }
+        } catch (\Exception $e) {
+            // Filter already exists, skip
+        }
+
+        try {
+            if (!$twig->getFilter('smart')) {
+                $twig->addFilter(new \Twig\TwigFilter('smart', [__CLASS__, 'get_best_format']));
+            }
+        } catch (\Exception $e) {
+            // Filter already exists, skip
+        }
+
         return $twig;
     }
 
