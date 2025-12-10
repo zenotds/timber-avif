@@ -69,8 +69,9 @@ function timber_avif_init() {
         Timber_AVIF_Admin::init();
     }
 }
-// Use after_setup_theme with late priority to ensure Composer autoload has run
-add_action('after_setup_theme', 'timber_avif_init', 20);
+// Use after_setup_theme with priority 5 to run EARLY, before theme's twig.php
+// This ensures we register our filters before any other timber/twig hooks
+add_action('after_setup_theme', 'timber_avif_init', 5);
 
 /**
  * Add settings link on plugins page
