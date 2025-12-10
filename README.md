@@ -56,12 +56,24 @@ You can configure the default behavior by editing the constants at the top of th
 // /inc/avif.php
 
 // -- Configuration Constants --
-const DEFAULT_QUALITY = 75; // Default AVIF quality (1-100)
-const ENABLE_DEBUG_LOGGING = true; // Set to false on production to disable logging.
+const DEFAULT_QUALITY = 80; // Default AVIF quality (1-100)
+const ENABLE_DEBUG_LOGGING = false; // Set to true for development debugging
+const MAX_IMAGE_DIMENSION = 4096; // Prevent memory exhaustion (pixels)
+const MAX_FILE_SIZE_MB = 50; // Max file size to attempt conversion
+const ONLY_IF_SMALLER = true; // Only use AVIF if smaller than original
+const ENABLE_AUTO_CONVERT_ON_UPLOAD = false; // Auto-convert images on upload
+const STALE_LOCK_TIMEOUT = 300; // Remove locks older than N seconds
 ````
 
-  * `DEFAULT_QUALITY`: The compression quality for images converted without a specified quality.
-  * `ENABLE_DEBUG_LOGGING`: Set this to `false` on your production site to prevent messages from being written to the PHP error log.
+### Configuration Options
+
+  * `DEFAULT_QUALITY`: The compression quality for images converted without a specified quality (1-100)
+  * `ENABLE_DEBUG_LOGGING`: Set to `true` for development to enable detailed logging with severity levels
+  * `MAX_IMAGE_DIMENSION`: Maximum image dimension in pixels to prevent memory exhaustion
+  * `MAX_FILE_SIZE_MB`: Maximum file size in MB to attempt conversion
+  * `ONLY_IF_SMALLER`: Only use AVIF if the converted file is smaller than the original
+  * `ENABLE_AUTO_CONVERT_ON_UPLOAD`: Automatically convert images to AVIF when uploaded to media library
+  * `STALE_LOCK_TIMEOUT`: Seconds after which stale lock files are automatically removed
 
 -----
 
@@ -104,19 +116,79 @@ For robust, production-ready code, you should provide fallbacks for browsers tha
 
 -----
 
-## WP-CLI Command
+## WP-CLI Commands
 
-If you use [WP-CLI](https://wp-cli.org/), you can clear all generated AVIF files and transients using the following command. This is useful during development or if you change the default quality and want to regenerate all images.
+If you use [WP-CLI](https://wp-cli.org/), several commands are available for managing AVIF conversions:
 
+### Clear Cache
+Clear all generated AVIF files and transients:
 ```bash
 wp timber-avif clear-cache
+```
+
+### Bulk Conversion
+Convert all existing images in the media library to AVIF:
+```bash
+wp timber-avif bulk
+```
+
+**Options:**
+- `--quality=N` - Override default quality (1-100)
+- `--force` - Force regeneration of existing AVIF files
+- `--limit=N` - Limit number of images to convert
+
+**Examples:**
+```bash
+# Convert all images with quality 70
+wp timber-avif bulk --quality=70
+
+# Force regenerate first 100 images
+wp timber-avif bulk --force --limit=100
+```
+
+### Detect Capabilities
+Check which conversion method is available on your server:
+```bash
+wp timber-avif detect
+```
+
+### Cleanup Corrupted Files
+Remove invalid or corrupted AVIF files:
+```bash
+wp timber-avif cleanup
 ```
 
 -----
 
 ## Changelog
 
-### Version 2.0.1 (Current)
+### Version 2.5 (Current)
+**Backend Optimization Release**
+
+#### Performance Enhancements
+- **Non-Blocking Lock Handling**: Removed `sleep(1)` blocking call - returns original URL immediately when conversion is in progress, eliminating 1-second delays
+- **Stale Lock Cleanup**: Automatically removes lock files older than 5 minutes (configurable) to prevent stuck conversions
+- **File Size Comparison**: New `ONLY_IF_SMALLER` constant - only uses AVIF if smaller than original, logs size savings percentage
+- **Structured Logging**: Added severity levels (debug, info, warning, error) for better log filtering and debugging
+
+#### New Features
+- **Auto-Conversion on Upload**: Optional `ENABLE_AUTO_CONVERT_ON_UPLOAD` constant - automatically converts images to AVIF on upload, including all image sizes
+- **WP-CLI Bulk Conversion**: New `wp timber-avif bulk` command with progress bar, supports `--quality`, `--force`, and `--limit` flags
+- **Enhanced Logging**: All log messages now include severity levels for better monitoring and debugging
+
+#### Configuration Options
+- `ONLY_IF_SMALLER` (default: true) - Only use AVIF if smaller than original
+- `ENABLE_AUTO_CONVERT_ON_UPLOAD` (default: false) - Auto-convert on upload
+- `STALE_LOCK_TIMEOUT` (default: 300) - Remove locks older than N seconds
+
+#### Developer Experience
+- Better error messages with context-aware severity levels
+- Comprehensive logging of conversion success with size savings metrics
+- Improved UX: no more blocking waits for concurrent conversion attempts
+
+---
+
+### Version 2.0.1
 **Major Rewrite - Performance & Reliability Edition**
 
 #### New Features

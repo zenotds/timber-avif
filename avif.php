@@ -1,12 +1,12 @@
 <?php
 /**
- * Timber AVIF Converter - Optimized & Fail-Safe Edition
+ * Timber AVIF Converter - Performance Optimized Edition
  *
- * @version 2.0.1 - Hotfix: WP-CLI command visibility
- *                  Enhanced with capability detection, race condition prevention, 
- *                  memory management, and performance optimizations
+ * @version 2.5 - Backend optimization release
+ *                Non-blocking lock handling, stale lock cleanup, file size comparison,
+ *                structured logging, auto-conversion on upload, bulk conversion CLI
  * @author Francesco Zeno Selva
- * 
+ *
  * Installation:
  * 1. `require_once get_template_directory() . '/path/to/avif.php';` in your functions.php
  * 2. Use in Twig: `{{ image|toavif }}` or `{{ image.src|toavif(65) }}`
@@ -21,6 +21,9 @@ class AVIFConverter {
     const ENABLE_DEBUG_LOGGING = false;
     const MAX_IMAGE_DIMENSION = 4096; // Prevent memory exhaustion
     const MAX_FILE_SIZE_MB = 50; // Max file size to attempt conversion
+    const ONLY_IF_SMALLER = true; // Only use AVIF if smaller than original
+    const ENABLE_AUTO_CONVERT_ON_UPLOAD = false; // Auto-convert images on upload
+    const STALE_LOCK_TIMEOUT = 300; // Remove locks older than 5 minutes
     
     // -- Internal Constants --
     private const CACHE_PREFIX = 'timber_avif_';
@@ -37,9 +40,44 @@ class AVIFConverter {
     public static function init() {
         add_filter('timber/twig', [__CLASS__, 'add_twig_filters']);
         add_action('admin_notices', [__CLASS__, 'check_avif_support_admin_notice']);
-        
+
+        // Auto-convert on upload if enabled
+        if (self::ENABLE_AUTO_CONVERT_ON_UPLOAD) {
+            add_filter('wp_generate_attachment_metadata', [__CLASS__, 'auto_convert_on_upload'], 10, 2);
+        }
+
         // Detect capabilities on init if not cached
         self::detect_capabilities();
+    }
+
+    /**
+     * Auto-converts images to AVIF on upload
+     */
+    public static function auto_convert_on_upload($metadata, $attachment_id) {
+        if (!isset($metadata['file'])) {
+            return $metadata;
+        }
+
+        $upload_dir = wp_upload_dir();
+        $file_path = $upload_dir['basedir'] . '/' . $metadata['file'];
+
+        if (file_exists($file_path)) {
+            self::log('Auto-converting uploaded image: ' . basename($file_path), 'info');
+            self::convert_to_avif($file_path, self::DEFAULT_QUALITY, false);
+
+            // Also convert image sizes if they exist
+            if (isset($metadata['sizes']) && is_array($metadata['sizes'])) {
+                $file_dir = dirname($file_path);
+                foreach ($metadata['sizes'] as $size => $size_data) {
+                    $size_file = $file_dir . '/' . $size_data['file'];
+                    if (file_exists($size_file)) {
+                        self::convert_to_avif($size_file, self::DEFAULT_QUALITY, false);
+                    }
+                }
+            }
+        }
+
+        return $metadata;
     }
 
     /**
@@ -74,26 +112,26 @@ class AVIFConverter {
 
         // Validate file existence
         if (!$file_path || !file_exists($file_path)) {
-            self::log("Source file not found: '{$original_url}'");
+            self::log("Source file not found: '{$original_url}'", 'warning');
             return $original_url;
         }
 
         // Check file size before processing
         $file_size_mb = filesize($file_path) / 1024 / 1024;
         if ($file_size_mb > self::MAX_FILE_SIZE_MB) {
-            self::log("File too large for conversion ({$file_size_mb}MB): {$original_url}");
+            self::log("File too large for conversion ({$file_size_mb}MB): {$original_url}", 'info');
             return $original_url;
         }
 
         // Validate image dimensions to prevent memory exhaustion
         $image_info = @getimagesize($file_path);
         if (!$image_info) {
-            self::log("Unable to read image info: {$file_path}");
+            self::log("Unable to read image info: {$file_path}", 'warning');
             return $original_url;
         }
 
         if ($image_info[0] > self::MAX_IMAGE_DIMENSION || $image_info[1] > self::MAX_IMAGE_DIMENSION) {
-            self::log("Image dimensions exceed maximum ({$image_info[0]}x{$image_info[1]}): {$file_path}");
+            self::log("Image dimensions exceed maximum ({$image_info[0]}x{$image_info[1]}): {$file_path}", 'info');
             return $original_url;
         }
 
@@ -109,35 +147,37 @@ class AVIFConverter {
             } else {
                 // Corrupted file detected, remove it
                 @unlink($avif_path);
-                self::log("Corrupted AVIF file removed: {$avif_path}");
+                self::log("Corrupted AVIF file removed: {$avif_path}", 'warning');
             }
         }
 
         // Check write permissions
         $target_dir = dirname($avif_path);
         if (!is_writable($target_dir)) {
-            self::log("Upload directory is not writable: {$target_dir}");
+            self::log("Upload directory is not writable: {$target_dir}", 'error');
             return $original_url;
         }
 
         // Prevent race conditions with file locking
         $lock_file = $avif_path . '.lock';
+
+        // Clean up stale locks (older than STALE_LOCK_TIMEOUT seconds)
+        if (file_exists($lock_file)) {
+            $lock_age = time() - filemtime($lock_file);
+            if ($lock_age > self::STALE_LOCK_TIMEOUT) {
+                @unlink($lock_file);
+                self::log("Removed stale lock file (age: {$lock_age}s): {$lock_file}", 'warning');
+            }
+        }
+
         $lock_handle = @fopen($lock_file, 'c');
-        
+
         if (!$lock_handle || !flock($lock_handle, LOCK_EX | LOCK_NB)) {
             // Another process is already converting this image
-            self::log("Conversion already in progress: {$avif_path}");
-            
-            // Wait briefly and check if file was created
-            sleep(1);
-            if (file_exists($avif_path) && filesize($avif_path) > 0) {
-                if ($lock_handle) {
-                    fclose($lock_handle);
-                }
-                @unlink($lock_file);
-                return $avif_url;
-            }
-            
+            self::log("Conversion already in progress: {$avif_path}", 'info');
+
+            // Return original URL immediately (non-blocking)
+            // Next request will serve the converted version if ready
             if ($lock_handle) {
                 fclose($lock_handle);
             }
@@ -147,21 +187,37 @@ class AVIFConverter {
         try {
             // Perform conversion with cached method
             $success = self::perform_conversion($file_path, $avif_path, $quality);
-            
+
             if ($success) {
                 // Verify the created file is valid
                 if (!self::is_valid_avif($avif_path)) {
                     @unlink($avif_path);
-                    self::log("Generated AVIF file failed validation: {$avif_path}");
+                    self::log("Generated AVIF file failed validation: {$avif_path}", 'error');
                     $success = false;
+                } else {
+                    // Check if AVIF is actually smaller than original
+                    if (self::ONLY_IF_SMALLER) {
+                        $original_size = filesize($file_path);
+                        $avif_size = filesize($avif_path);
+
+                        if ($avif_size >= $original_size) {
+                            @unlink($avif_path);
+                            $savings = $original_size - $avif_size;
+                            self::log("AVIF not smaller than original ({$savings} bytes), removed: {$avif_path}", 'info');
+                            $success = false;
+                        } else {
+                            $percent_saved = round((1 - $avif_size / $original_size) * 100, 1);
+                            self::log("AVIF created successfully, {$percent_saved}% smaller: {$avif_path}", 'info');
+                        }
+                    }
                 }
             }
-            
+
             // Release lock
             flock($lock_handle, LOCK_UN);
             fclose($lock_handle);
             @unlink($lock_file);
-            
+
             return $success ? $avif_url : $original_url;
             
         } catch (\Exception $e) {
@@ -171,8 +227,8 @@ class AVIFConverter {
                 fclose($lock_handle);
             }
             @unlink($lock_file);
-            
-            self::log("Exception during conversion: " . $e->getMessage());
+
+            self::log("Exception during conversion: " . $e->getMessage(), 'error');
             return $original_url;
         }
     }
@@ -229,8 +285,8 @@ class AVIFConverter {
         // Cache the result
         set_transient(self::CAPABILITY_CACHE_KEY, $method, self::CAPABILITY_CACHE_DURATION);
         self::$conversion_method = $method;
-        
-        self::log("Detected conversion method: {$method}");
+
+        self::log("Detected conversion method: {$method}", 'info');
         return $method;
     }
     
@@ -346,9 +402,9 @@ class AVIFConverter {
                     return ['path' => $image->file_loc, 'url' => $image->src];
                 }
             } catch (\Exception $e) {
-                self::log("Error creating Timber image: " . $e->getMessage());
+                self::log("Error creating Timber image: " . $e->getMessage(), 'warning');
             }
-            
+
             return ['path' => null, 'url' => $url];
         }
 
@@ -418,9 +474,10 @@ class AVIFConverter {
             
             case 'exec':
                 return self::convert_with_exec($source, $destination, $quality);
-            
+
+
             default:
-                self::log("No conversion method available for: {$source}");
+                self::log("No conversion method available for: {$source}", 'error');
                 return false;
         }
     }
@@ -448,7 +505,7 @@ class AVIFConverter {
             };
 
             if (!$image) {
-                self::log("GD failed to create image resource");
+                self::log("GD failed to create image resource", 'error');
                 return false;
             }
 
@@ -460,10 +517,10 @@ class AVIFConverter {
 
             $success = @imageavif($image, $destination, $quality);
             imagedestroy($image);
-            
+
             return $success;
         } catch (\Exception $e) {
-            self::log("GD Exception: " . $e->getMessage());
+            self::log("GD Exception: " . $e->getMessage(), 'error');
             return false;
         }
     }
@@ -486,10 +543,10 @@ class AVIFConverter {
             $success = $imagick->writeImage($destination);
             $imagick->clear();
             $imagick->destroy();
-            
+
             return $success;
         } catch (\Exception $e) {
-            self::log("ImageMagick Exception: " . $e->getMessage());
+            self::log("ImageMagick Exception: " . $e->getMessage(), 'error');
             return false;
         }
     }
@@ -517,8 +574,8 @@ class AVIFConverter {
         if ($return_var === 0 && file_exists($destination) && filesize($destination) > 0) {
             return true;
         }
-        
-        self::log("Exec failed. Output: " . implode(' ', $output));
+
+        self::log("Exec failed. Output: " . implode(' ', $output), 'error');
         return false;
     }
     
@@ -555,7 +612,7 @@ class AVIFConverter {
         if ($current_bytes < $required_bytes) {
             $new_limit = ceil($required_bytes / 1024 / 1024) . 'M';
             @ini_set('memory_limit', $new_limit);
-            self::log("Increased memory limit to {$new_limit}");
+            self::log("Increased memory limit to {$new_limit}", 'info');
         }
     }
     
@@ -599,12 +656,23 @@ class AVIFConverter {
     }
 
     /**
-     * Debug logging
+     * Structured logging with severity levels
+     *
+     * @param string $message The log message
+     * @param string $level Severity level: 'debug', 'info', 'warning', 'error'
      */
-    private static function log($message) {
-        if (self::ENABLE_DEBUG_LOGGING && defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[Timber AVIF] ' . $message);
+    private static function log($message, $level = 'debug') {
+        if (!self::ENABLE_DEBUG_LOGGING || !defined('WP_DEBUG') || !WP_DEBUG) {
+            return;
         }
+
+        $valid_levels = ['debug', 'info', 'warning', 'error'];
+        if (!in_array($level, $valid_levels)) {
+            $level = 'debug';
+        }
+
+        $level_upper = strtoupper($level);
+        error_log("[Timber AVIF][{$level_upper}] {$message}");
     }
 
     /**
@@ -666,7 +734,7 @@ class AVIFConverter {
                 if (!self::is_valid_avif($file->getPathname())) {
                     @unlink($file->getPathname());
                     $count++;
-                    self::log("Removed corrupted AVIF: " . $file->getPathname());
+                    self::log("Removed corrupted AVIF: " . $file->getPathname(), 'warning');
                 }
             }
         }
@@ -685,5 +753,68 @@ if (defined('WP_CLI') && WP_CLI) {
     WP_CLI::add_command('timber-avif detect', function() {
         $method = AVIFConverter::detect_capabilities();
         WP_CLI::success("Detected conversion method: {$method}");
+    });
+
+    WP_CLI::add_command('timber-avif bulk', function($args, $assoc_args) {
+        $force = isset($assoc_args['force']) && $assoc_args['force'];
+        $quality = isset($assoc_args['quality']) ? intval($assoc_args['quality']) : AVIFConverter::DEFAULT_QUALITY;
+        $limit = isset($assoc_args['limit']) ? intval($assoc_args['limit']) : -1;
+
+        WP_CLI::log("Starting bulk AVIF conversion (quality: {$quality}, force: " . ($force ? 'yes' : 'no') . ")");
+
+        $query_args = [
+            'post_type' => 'attachment',
+            'post_mime_type' => ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+            'posts_per_page' => $limit,
+            'post_status' => 'any',
+            'fields' => 'ids'
+        ];
+
+        $attachments = get_posts($query_args);
+        $total = count($attachments);
+        $converted = 0;
+        $skipped = 0;
+        $failed = 0;
+
+        if ($total === 0) {
+            WP_CLI::warning('No image attachments found.');
+            return;
+        }
+
+        $progress = \WP_CLI\Utils\make_progress_bar("Converting {$total} images", $total);
+
+        foreach ($attachments as $attachment_id) {
+            $file_path = get_attached_file($attachment_id);
+
+            if (!$file_path || !file_exists($file_path)) {
+                $skipped++;
+                $progress->tick();
+                continue;
+            }
+
+            $result = AVIFConverter::convert_to_avif($file_path, $quality, $force);
+
+            // Check if AVIF was created
+            $avif_path = str_replace(
+                ['.jpg', '.jpeg', '.png', '.webp', '.gif'],
+                ['.avif', '.avif', '.avif', '.avif', '.avif'],
+                strtolower($file_path)
+            );
+
+            if ($result !== $file_path && file_exists($avif_path)) {
+                $converted++;
+            } else {
+                $failed++;
+            }
+
+            $progress->tick();
+        }
+
+        $progress->finish();
+
+        WP_CLI::success("Bulk conversion complete!");
+        WP_CLI::log("Converted: {$converted}");
+        WP_CLI::log("Skipped: {$skipped}");
+        WP_CLI::log("Failed: {$failed}");
     });
 }
