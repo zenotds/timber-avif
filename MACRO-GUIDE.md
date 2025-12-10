@@ -6,17 +6,25 @@ This document explains the differences between your current macro and the v3-opt
 
 ## 📊 **Macro Comparison**
 
-### **Your Current Macro (`macros.twig`)**
+### **Fixed Current Macro (`macros.twig`)**
 
 **Compatibility:** ✅ Works with v2.5 and v3.0
 
-**HTML Output Issue:**
+**HTML Output (CORRECT):**
 ```html
-<!-- What it currently generates (INCORRECT) -->
-<source media="..." srcset="img-800.avif 1x, img-1600.avif 2x, img-800.webp 1x, img-1600.webp 2x, img-800.jpg 1x, img-1600.jpg 2x"/>
+<!-- AVIF sources -->
+<source media="..." srcset="img-800.avif 1x, img-1600.avif 2x" type="image/avif"/>
+<!-- WebP sources -->
+<source media="..." srcset="img-800.webp 1x, img-1600.webp 2x" type="image/webp"/>
+<!-- Original sources -->
+<source media="..." srcset="img-800.jpg 1x, img-1600.jpg 2x"/>
 ```
 
-**Problem:** Browsers can't distinguish between formats without `type` attribute. The browser will try to load ALL formats in the srcset!
+**Features:**
+- ✅ Correct HTML structure (separate `<source>` per format)
+- ✅ Works with both v2.5 and v3.0
+- ✅ AVIF and WebP support
+- ✅ Responsive breakpoints
 
 **Performance with v3.0:**
 - With pre-generation enabled: ⚡ **FAST** (all files exist)
@@ -56,73 +64,25 @@ This document explains the differences between your current macro and the v3-opt
 
 ## 🔧 **Migration Guide**
 
-### **Option 1: Keep Your Current Macro (Quick Fix)**
+### **Option 1: Use Fixed Current Macro (Recommended)**
 
-Your current macro will work with both v2.5 and v3.0, but needs a small HTML fix.
+The `macros.twig` file has been updated with the correct HTML structure. It now:
+- ✅ Generates separate `<source>` tags per format
+- ✅ Works with both v2.5 and v3.0
+- ✅ No changes needed to your templates!
 
-**Fix the HTML structure** (lines 89-96):
-
-**BEFORE:**
+Just use the updated `macros.twig` as-is:
 ```twig
-{% set srcsetParts = [] %}
-{% if config.avif %}
-    {% set srcsetParts = srcsetParts|merge([src1x|toavif ~ ' 1x', src2x|toavif ~ ' 2x']) %}
-{% endif %}
-{% if config.webp %}
-    {% set srcsetParts = srcsetParts|merge([src1x|towebp ~ ' 1x', src2x|towebp ~ ' 2x']) %}
-{% endif %}
-{% set srcsetParts = srcsetParts|merge([src1x ~ ' 1x', src2x ~ ' 2x']) %}
-
-{% set pictureSources = pictureSources|merge([{
-    'media': source.media,
-    'srcset': srcsetParts|join(', ')
-}]) %}
-```
-
-**AFTER (Quick Fix):**
-```twig
-{# Store variants instead of building srcset string #}
-{% set pictureSources = pictureSources|merge([{
-    'media': source.media,
-    'src1x': src1x,
-    'src2x': src2x
-}]) %}
-```
-
-Then update the output section (lines 109-111):
-
-**BEFORE:**
-```twig
-{% for source in pictureSources %}
-    <source {% if source.media %}media="{{ source.media }}" {% endif %}srcset="{{ source.srcset }}"/>
-{% endfor %}
-```
-
-**AFTER:**
-```twig
-{# AVIF sources #}
-{% if config.avif %}
-    {% for source in pictureSources %}
-        <source {% if source.media %}media="{{ source.media }}" {% endif %}
-                srcset="{{ source.src1x|toavif }} 1x, {{ source.src2x|toavif }} 2x"
-                type="image/avif"/>
-    {% endfor %}
-{% endif %}
-
-{# WebP sources #}
-{% if config.webp %}
-    {% for source in pictureSources %}
-        <source {% if source.media %}media="{{ source.media }}" {% endif %}
-                srcset="{{ source.src1x|towebp }} 1x, {{ source.src2x|towebp }} 2x"
-                type="image/webp"/>
-    {% endfor %}
-{% endif %}
-
-{# Original sources #}
-{% for source in pictureSources %}
-    <source {% if source.media %}media="{{ source.media }}" {% endif %}
-            srcset="{{ source.src1x }} 1x, {{ source.src2x }} 2x"/>
-{% endfor %}
+{% import 'macros.twig' as img %}
+{{ img.image(post.thumbnail, {
+    sizes: {
+        'xs': [400],
+        'sm': [600],
+        'md': [800],
+        'lg': [1200],
+        'xl': [1600]
+    }
+}) }}
 ```
 
 ---
@@ -309,16 +269,20 @@ With 6 breakpoints × 2 densities = 12 resize operations per image:
 
 ## 📝 **Summary**
 
-| Feature | Current Macro | Current + Fix | v3 Macro |
-|---------|---------------|---------------|----------|
-| Works with v2.5 | ✅ | ✅ | ✅ |
-| Works with v3.0 | ✅ | ✅ | ✅ |
-| Correct HTML | ❌ | ✅ | ✅ |
-| Smart filter | ❌ | ❌ | ✅ |
-| Optimized for v3 | ❌ | ⚠️ | ✅ |
-| Pre-gen support | ✅ | ✅ | ✅ |
+| Feature | macros.twig (Fixed) | macros-v3.twig |
+|---------|---------------------|----------------|
+| Works with v2.5 | ✅ | ✅ |
+| Works with v3.0 | ✅ | ✅ |
+| Correct HTML | ✅ | ✅ |
+| AVIF support | ✅ | ✅ |
+| WebP support | ✅ | ✅ |
+| Smart filter | ❌ | ✅ |
+| Optimized for v3 | ⚠️ Good | ✅ Best |
+| Pre-gen support | ✅ | ✅ |
 
-**Recommendation:** Apply the HTML fix now, then switch to v3 macro when ready to test v3.0 plugin!
+**Recommendation:**
+- **For most users:** Use `macros.twig` (fixed) - works great with both v2.5 and v3.0!
+- **For v3.0 power users:** Use `macros-v3.twig` with smart mode for maximum optimization
 
 ---
 
