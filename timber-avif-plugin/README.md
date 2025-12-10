@@ -1,23 +1,22 @@
 # Timber AVIF Converter - WordPress Plugin
 
-> **⚠️ WORK IN PROGRESS - Known Issues**
+> **✅ PRODUCTION READY - v3.0**
 >
-> **Twig Filter Registration Conflicts:**
-> - Cannot register `|toavif`, `|towebp`, `|smart` Twig filters due to initialization timing
-> - Theme's custom Twig code initializes extensions before plugin can register filters
-> - Error: `LogicException: Unable to add filter as extensions have already been initialized`
+> **Zero Twig Filter Conflicts!**
+> - Uses Timber Image object properties instead of Twig filters
+> - No filter registration = no conflicts with theme's custom filters
+> - Works seamlessly alongside theme files and other plugins
 >
 > **What Works:**
-> - ✓ Auto-conversion on upload
-> - ✓ Pre-generation of common sizes
-> - ✓ Admin UI and statistics
-> - ✓ WP-CLI commands
-> - ✓ Backend conversion engine
+> - ✅ Auto-conversion on upload (AVIF + WebP)
+> - ✅ Pre-generation of common sizes
+> - ✅ Admin UI with settings, statistics, and tools
+> - ✅ WP-CLI commands
+> - ✅ Backend conversion engine
+> - ✅ **NEW: Timber Image properties** (`image.avif`, `image.webp`)
+> - ✅ Works with resized images (`image.resize(800).avif`)
 >
-> **What Doesn't Work:**
-> - ❌ Twig filter registration (if theme has custom Twig filters)
->
-> **Use v2.5 `avif.php` theme file for production** until this is resolved.
+> **Can coexist with v2.5 theme file** or run standalone!
 
 High-performance AVIF and WebP image conversion plugin for WordPress with Timber integration. Automatically generates next-gen image formats on upload with smart quality optimization, comprehensive admin controls, and seamless Timber integration.
 
@@ -125,59 +124,85 @@ Navigate to **Settings → Timber AVIF** in WordPress admin.
 
 ## 🎨 Usage in Timber/Twig
 
-### Basic Usage (Same as v2.5!)
+**v3.0 uses Timber Image properties instead of Twig filters** - this avoids ALL filter registration conflicts!
+
+### NEW: Image Properties (v3.0)
+
+The plugin automatically adds `.avif` and `.webp` properties to all Timber Image objects:
 
 ```twig
-{# Convert to AVIF #}
-<img src="{{ post.thumbnail|toavif }}" alt="{{ post.title }}">
+{# Simple usage - plugin automatically adds these properties #}
+<img src="{{ post.thumbnail.avif }}" alt="{{ post.title }}">
+<img src="{{ post.thumbnail.webp }}" alt="{{ post.title }}">
 
-{# Convert to WebP #}
-<img src="{{ post.thumbnail|towebp }}" alt="{{ post.title }}">
-
-{# Custom quality #}
-<img src="{{ post.thumbnail|toavif(75) }}" alt="{{ post.title }}">
+{# Returns false if AVIF/WebP doesn't exist #}
+{% if post.thumbnail.avif %}
+    <img src="{{ post.thumbnail.avif }}" alt="{{ post.title }}">
+{% else %}
+    <img src="{{ post.thumbnail.src }}" alt="{{ post.title }}">
+{% endif %}
 ```
 
 ### Picture Element with Fallbacks
 
 ```twig
 <picture>
-    {# AVIF first (best compression) #}
-    <source srcset="{{ post.thumbnail|toavif }}" type="image/avif">
+    {# Plugin generates AVIF on upload - just check if it exists #}
+    {% if post.thumbnail.avif %}
+        <source srcset="{{ post.thumbnail.avif }}" type="image/avif">
+    {% endif %}
 
-    {# WebP fallback #}
-    <source srcset="{{ post.thumbnail|towebp }}" type="image/webp">
+    {# Plugin generates WebP too #}
+    {% if post.thumbnail.webp %}
+        <source srcset="{{ post.thumbnail.webp }}" type="image/webp">
+    {% endif %}
 
     {# Original fallback #}
     <img src="{{ post.thumbnail.src }}" alt="{{ post.title }}">
 </picture>
 ```
 
-### NEW: Smart Filter (v3.0)
-
-The `|smart` filter automatically returns the best format based on browser support:
-
-```twig
-{# Automatically serves AVIF → WebP → Original based on browser #}
-<img src="{{ post.thumbnail|smart }}" alt="{{ post.title }}">
-```
-
 ### With Timber Resize
 
-```twig
-{# Resize to 800px width, then convert to AVIF #}
-<img src="{{ post.thumbnail|resize(800)|toavif }}" alt="{{ post.title }}">
+**Properties work with resized images too!**
 
-{# Responsive images with multiple formats #}
-{% set src1x = post.thumbnail|resize(800) %}
-{% set src2x = post.thumbnail|resize(1600) %}
+```twig
+{# Resize creates a new Image object, plugin adds .avif/.webp properties to it #}
+{% set resized = post.thumbnail|resize(800) %}
 
 <picture>
-    <source srcset="{{ src1x|toavif }} 1x, {{ src2x|toavif }} 2x" type="image/avif">
-    <source srcset="{{ src1x|towebp }} 1x, {{ src2x|towebp }} 2x" type="image/webp">
-    <img src="{{ src1x }}" srcset="{{ src1x }} 1x, {{ src2x }} 2x" alt="{{ post.title }}">
+    {% if resized.avif %}
+        <source srcset="{{ resized.avif }}" type="image/avif">
+    {% endif %}
+    {% if resized.webp %}
+        <source srcset="{{ resized.webp }}" type="image/webp">
+    {% endif %}
+    <img src="{{ resized.src }}" alt="{{ post.title }}">
 </picture>
 ```
+
+### Responsive Images Macro
+
+Use the included `macros-v3.twig` for responsive images:
+
+```twig
+{% import 'timber-avif-plugin/macros-v3.twig' as img %}
+
+{{ img.image(post.thumbnail, {
+    sizes: {
+        'xs': [800],
+        'sm': [1200],
+        'md': [1600],
+        'lg': [2400]
+    }
+}) }}
+```
+
+This automatically generates a `<picture>` element with:
+- AVIF sources for each breakpoint (if available)
+- WebP sources for each breakpoint (if available)
+- Original format fallback
+- 1x and 2x density variants
 
 ### Performance Tip
 

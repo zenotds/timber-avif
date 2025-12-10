@@ -20,9 +20,9 @@ class Timber_AVIF_Converter {
      * Initialize hooks and filters
      */
     public static function init() {
-        // Register Twig filters with priority 5 to run before other filters
-        // This ensures we register before v2.5 theme file or other extensions
-        add_filter('timber/twig', [__CLASS__, 'add_twig_filters'], 5);
+        // v3.0 Strategy: Extend Timber Image objects instead of Twig filters
+        // This avoids conflicts with theme's custom Twig filters
+        add_filter('timber/image/object', [__CLASS__, 'extend_timber_image'], 10);
 
         // Auto-convert on upload
         add_filter('wp_generate_attachment_metadata', [__CLASS__, 'auto_convert_on_upload'], 10, 2);
@@ -69,46 +69,78 @@ class Timber_AVIF_Converter {
     }
 
     /**
-     * Register Twig filters
+     * Extend Timber Image objects with avif and webp properties
+     *
+     * This approach avoids Twig filter registration conflicts entirely.
+     * Instead of filters, we add properties to Timber Image objects:
+     *
+     * Usage in templates:
+     *   {{ image.avif }}  - Returns AVIF URL if exists, or false
+     *   {{ image.webp }}  - Returns WebP URL if exists, or false
+     *
+     * Works with resized images too:
+     *   {{ image.resize(800).avif }}  - AVIF version of resized image
      */
-    public static function add_twig_filters($twig) {
-        // Check if extensions are already initialized (Twig is locked)
-        // This happens if v2.5 theme file or another plugin already used Twig
-        try {
-            // Only register toavif filter (towebp is built into Timber core)
-            // Check if toavif already exists (e.g., from v2.5 theme file)
-            $existing_filter = false;
-            try {
-                $existing_filter = $twig->getFilter('toavif');
-            } catch (\Exception $e) {
-                // getFilter might throw, treat as not existing
-            }
-
-            if (!$existing_filter) {
-                $twig->addFilter(new \Twig\TwigFilter('toavif', [__CLASS__, 'convert_to_avif']));
-            }
-
-            // Add smart filter (new in v3.0)
-            $existing_smart = false;
-            try {
-                $existing_smart = $twig->getFilter('smart');
-            } catch (\Exception $e) {
-                // getFilter might throw, treat as not existing
-            }
-
-            if (!$existing_smart) {
-                $twig->addFilter(new \Twig\TwigFilter('smart', [__CLASS__, 'get_best_format']));
-            }
-        } catch (\LogicException $e) {
-            // Twig extensions already initialized - can't add filters
-            // This means v2.5 theme file or another plugin got there first
-            // Silently skip - the existing filters will work fine
+    public static function extend_timber_image($image) {
+        if (!$image instanceof \Timber\Image) {
+            return $image;
         }
 
-        // Note: We don't register 'towebp' as it's built into Timber core
-        // Users should continue using Timber's built-in |towebp filter
+        // Add avif property
+        $image->avif = self::get_avif_url($image);
 
-        return $twig;
+        // Add webp property
+        $image->webp = self::get_webp_url($image);
+
+        return $image;
+    }
+
+    /**
+     * Get AVIF URL for an image (if it exists)
+     */
+    private static function get_avif_url($image) {
+        $src = $image->src();
+        if (!$src) {
+            return false;
+        }
+
+        // Generate AVIF path
+        $avif_url = preg_replace('/\.(jpe?g|png|webp|gif)$/i', '.avif', $src);
+
+        // Convert URL to file path to check existence
+        $upload_dir = wp_upload_dir();
+        if (strpos($avif_url, $upload_dir['baseurl']) !== false) {
+            $avif_path = str_replace($upload_dir['baseurl'], $upload_dir['basedir'], $avif_url);
+
+            // Return URL if file exists, false otherwise
+            return file_exists($avif_path) ? $avif_url : false;
+        }
+
+        return false;
+    }
+
+    /**
+     * Get WebP URL for an image (if it exists)
+     */
+    private static function get_webp_url($image) {
+        $src = $image->src();
+        if (!$src) {
+            return false;
+        }
+
+        // Generate WebP path
+        $webp_url = preg_replace('/\.(jpe?g|png|avif|gif)$/i', '.webp', $src);
+
+        // Convert URL to file path to check existence
+        $upload_dir = wp_upload_dir();
+        if (strpos($webp_url, $upload_dir['baseurl']) !== false) {
+            $webp_path = str_replace($upload_dir['baseurl'], $upload_dir['basedir'], $webp_url);
+
+            // Return URL if file exists, false otherwise
+            return file_exists($webp_path) ? $webp_url : false;
+        }
+
+        return false;
     }
 
     /**
