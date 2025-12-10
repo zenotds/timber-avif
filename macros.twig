@@ -1,0 +1,115 @@
+{# Reactive image #}
+{% macro image(image, options = {}) %}
+    {% set defaults = {
+        sizes: null,
+        breakpoints: {
+            'xs': '0rem',
+            'sm': '40rem',
+            'md': '48rem',
+            'lg': '64rem',
+            'xl': '80rem',
+            '2xl': '96rem'
+        },
+        pictureClass: '',
+        imgClass: 'object-cover object-center h-full w-full mx-auto',
+        loading: 'lazy',
+        decoding: 'async',
+        avif: true,
+        webp: true
+    } %}
+
+    {% set config = defaults|merge(options) %}
+
+    {# Simple render when no responsive sizes are provided #}
+    {% if config.sizes is null %}
+        <picture class="picture {{ config.pictureClass }}">
+            {% if config.avif %}
+                <source srcset="{{ image|toavif }}" type="image/avif"/>
+            {% endif %}
+            {% if config.webp %}
+                <source srcset="{{ image|towebp }}" type="image/webp"/>
+            {% endif %}
+            <img {% if config.imgClass %} class="{{ config.imgClass }}" {% endif %} src="{{ image.url }}" {% if image.title %} alt="{{ image.title }}" {% endif %} {% if config.loading %} loading="{{ config.loading }}" {% endif %} {% if config.decoding %} decoding="{{ config.decoding }}" {% endif %} {% if image.width %} width="{{ image.width }}" {% endif %} {% if image.height %} height="{{ image.height }}" {% endif %}/>
+        </picture>
+    {% else %}
+
+    {% set maxResize = 2560 %}
+    {% set imageWidth = image.width %}
+    {% set imageHeight = image.height %}
+
+    {% set maxDimension = imageWidth > imageHeight ? imageWidth : imageHeight %}
+    {% set scaleFactor = maxDimension > maxResize ? (maxResize / maxDimension) : 1 %}
+
+    {% set normalizedSizes = {
+        'xs': config.sizes.xs is defined ? config.sizes.xs : [imageWidth],
+        'sm': config.sizes.sm is defined ? config.sizes.sm : (config.sizes.xs is defined ? config.sizes.xs : [imageWidth]),
+        'md': config.sizes.md is defined ? config.sizes.md : (config.sizes.sm is defined ? config.sizes.sm : (config.sizes.xs is defined ? config.sizes.xs : [imageWidth])),
+        'lg': config.sizes.lg is defined ? config.sizes.lg : (config.sizes.md is defined ? config.sizes.md : (config.sizes.sm is defined ? config.sizes.sm : (config.sizes.xs is defined ? config.sizes.xs : [imageWidth]))),
+        'xl': config.sizes.xl is defined ? config.sizes.xl : (config.sizes.lg is defined ? config.sizes.lg : (config.sizes.md is defined ? config.sizes.md : (config.sizes.sm is defined ? config.sizes.sm : (config.sizes.xs is defined ? config.sizes.xs : [imageWidth])))),
+        '2xl': config.sizes['2xl'] is defined ? config.sizes['2xl'] : (config.sizes.xl is defined ? config.sizes.xl : (config.sizes.lg is defined ? config.sizes.lg : (config.sizes.md is defined ? config.sizes.md : (config.sizes.sm is defined ? config.sizes.sm : (config.sizes.xs is defined ? config.sizes.xs : [imageWidth])))))
+    } %}
+
+    {% set sourceConfigs = [
+        {
+            'key': 'xs',
+            'media': '(min-width: ' ~ config.breakpoints.xs ~ ') and (max-width: ' ~ config.breakpoints.sm ~ ')'
+        },
+        {
+            'key': 'sm',
+            'media': '(min-width: ' ~ config.breakpoints.sm ~ ') and (max-width: ' ~ config.breakpoints.md ~ ')'
+        },
+        {
+            'key': 'md',
+            'media': '(min-width: ' ~ config.breakpoints.md ~ ') and (max-width: ' ~ config.breakpoints.lg ~ ')'
+        },
+        {
+            'key': 'lg',
+            'media': '(min-width: ' ~ config.breakpoints.lg ~ ') and (max-width: ' ~ config.breakpoints.xl ~ ')'
+        },
+        {
+            'key': 'xl',
+            'media': '(min-width: ' ~ config.breakpoints.xl ~ ') and (max-width: ' ~ config.breakpoints['2xl'] ~ ')'
+        },
+        {
+            'key': '2xl',
+            'media': null
+        }
+    ] %}
+
+    {% set pictureSources = [] %}
+
+    {% for source in sourceConfigs %}
+        {% set dims = normalizedSizes[source.key] %}
+        {% set targetWidth = (dims[0] is defined ? dims[0] : imageWidth) * scaleFactor %}
+        {% set targetHeight = dims[1] is defined ? dims[1] * scaleFactor : null %}
+
+        {% set src1x = image|resize(targetWidth, targetHeight) %}
+        {% set src2x = image|resize(targetWidth * 2, targetHeight is not null ? targetHeight * 2 : null) %}
+
+        {% set srcsetParts = [] %}
+        {% if config.avif %}
+            {% set srcsetParts = srcsetParts|merge([src1x|toavif ~ ' 1x', src2x|toavif ~ ' 2x']) %}
+        {% endif %}
+        {% if config.webp %}
+            {% set srcsetParts = srcsetParts|merge([src1x|towebp ~ ' 1x', src2x|towebp ~ ' 2x']) %}
+        {% endif %}
+        {% set srcsetParts = srcsetParts|merge([src1x ~ ' 1x', src2x ~ ' 2x']) %}
+
+        {% set pictureSources = pictureSources|merge([{
+            'media': source.media,
+            'srcset': srcsetParts|join(', ')
+        }]) %}
+    {% endfor %}
+
+    {% set baseSize = normalizedSizes['2xl'] %}
+    {% set baseWidth = baseSize[0] %}
+    {% set baseHeight = baseSize[1] is defined ? baseSize[1] : null %}
+
+    <picture class="picture {{ config.pictureClass }}">
+        {% for source in pictureSources %}
+            <source {% if source.media %}media="{{ source.media }}" {% endif %}srcset="{{ source.srcset }}"/>
+        {% endfor %}
+        <img {% if config.imgClass %} class="{{ config.imgClass }}" {% endif %} src="{{ image|resize(baseWidth, baseHeight) }}" {% if image.title %} alt="{{ image.title }}" {% endif %} {% if config.loading %} loading="{{ config.loading }}" {% endif %} {% if config.decoding %} decoding="{{ config.decoding }}" {% endif %} width="{{ baseWidth }}" {% if baseHeight %} height="{{ baseHeight }}" {% endif %}/>
+    </picture>
+    {% endif %}
+{% endmacro %}
