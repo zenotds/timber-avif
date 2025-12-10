@@ -1,16 +1,20 @@
-# WARNING: plugin is broken at |filter level. need more work.
-
 # Timber AVIF Converter
 
 A powerful AVIF and WebP image conversion solution for WordPress + Timber projects.
 
-> **🎉 NEW: Version 3.0 WordPress Plugin Available!**
-> Check out the [v3-plugin branch](../../tree/v3-plugin) for a complete WordPress plugin with admin UI, WebP support, statistics dashboard, and pre-generation features. **Solves the 20+ image timeout problem!**
-> [View v3.0 Documentation](timber-avif-plugin/README.md) | [See Changelog](#version-300---wordpress-plugin-new)
+> **⚠️ Version 3.0 Plugin - Work In Progress**
+>
+> This repository now contains both v2.5 (stable) and v3.0 (work in progress):
+> - **v2.5** (`avif.php`) - ✅ Production-ready theme file with backend optimizations
+> - **v3.0** (`timber-avif-plugin/`) - ⚠️ WIP WordPress plugin with admin UI, but has **Twig filter initialization conflicts**
+>
+> **Current Status**: v3.0 plugin cannot coexist with theme's custom Twig filters. Needs different approach or differently named filters.
+>
+> [View v3.0 Plugin Documentation](timber-avif-plugin/README.md) | [View Macro Guide](MACRO-GUIDE.md) | [See Full Changelog](#changelog)
 
 ---
 
-## Current Version: 2.5 (Theme File)
+## Version 2.5 - Stable & Production-Ready
 
 This is a single-file, dependency-free helper to add a powerful `|toavif` filter to your Timber 2.x projects in WordPress.
 
@@ -174,10 +178,25 @@ wp timber-avif cleanup
 
 ## Changelog
 
-### Version 3.0.0 - WordPress Plugin (New!)
-**⚠️ Available on `v3-plugin` branch - Complete WordPress Plugin Architecture**
+### Version 3.0.0 - WordPress Plugin (Work In Progress)
+**⚠️ Status: WIP - Has Twig Filter Registration Conflicts**
 
 v3.0 is a complete rewrite as a WordPress plugin with major new features and performance improvements. The plugin is **backward compatible** with v2.5 - all your existing Twig templates will work unchanged!
+
+**Known Issues:**
+- ❌ **Cannot register Twig filters** - Theme's custom Twig code initializes extensions before plugin can register filters
+- ❌ **Cannot coexist with theme's custom filters** - `LogicException: Unable to add filter as extensions have already been initialized`
+- ⚠️ **Needs redesign** - Requires different approach: differently named filters (`toavif_v3`), dedicated macro, or custom Twig Extension class
+
+**Plugin works perfectly for:**
+- ✓ Auto-conversion on upload
+- ✓ Pre-generation of common sizes
+- ✓ Admin UI and statistics
+- ✓ WP-CLI commands
+- ✓ Backend conversion engine
+
+**Plugin fails at:**
+- ❌ Registering `|toavif`, `|towebp`, `|smart` Twig filters due to initialization timing conflicts
 
 #### Plugin Architecture
 - ✓ **Full WordPress Plugin** - Proper plugin structure with easy installation/activation
@@ -209,15 +228,16 @@ With v3.0 and pre-generation enabled:
 2. **First Page Load**: All files already exist - serves instantly! ⚡
 3. **Your 20+ image pages**: No more timeouts or 500 errors!
 
-#### Installation
+#### Installation (Not Recommended - WIP State)
 ```bash
-# Get v3.0 plugin
-git checkout v3-plugin
-cd timber-avif-plugin
-
-# Install as WordPress plugin
+# Copy plugin folder to WordPress plugins directory
 cp -r timber-avif-plugin /path/to/wp-content/plugins/timber-avif
+
+# Activate in WordPress admin
+# Note: Will show errors if theme has custom Twig filters
 ```
+
+⚠️ **Not recommended for production use** until Twig filter registration conflicts are resolved.
 
 See the plugin README for complete documentation: `timber-avif-plugin/README.md`
 

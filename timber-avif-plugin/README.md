@@ -1,8 +1,27 @@
 # Timber AVIF Converter - WordPress Plugin
 
+> **⚠️ WORK IN PROGRESS - Known Issues**
+>
+> **Twig Filter Registration Conflicts:**
+> - Cannot register `|toavif`, `|towebp`, `|smart` Twig filters due to initialization timing
+> - Theme's custom Twig code initializes extensions before plugin can register filters
+> - Error: `LogicException: Unable to add filter as extensions have already been initialized`
+>
+> **What Works:**
+> - ✓ Auto-conversion on upload
+> - ✓ Pre-generation of common sizes
+> - ✓ Admin UI and statistics
+> - ✓ WP-CLI commands
+> - ✓ Backend conversion engine
+>
+> **What Doesn't Work:**
+> - ❌ Twig filter registration (if theme has custom Twig filters)
+>
+> **Use v2.5 `avif.php` theme file for production** until this is resolved.
+
 High-performance AVIF and WebP image conversion plugin for WordPress with Timber integration. Automatically generates next-gen image formats on upload with smart quality optimization, comprehensive admin controls, and seamless Timber integration.
 
-**Version:** 3.0.0
+**Version:** 3.0.0 (WIP)
 **Requires:** WordPress 5.0+, Timber 2.0+, PHP 8.1+
 
 ---
