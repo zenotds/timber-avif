@@ -1,6 +1,16 @@
 # Timber AVIF Converter
 
-A single-file, dependency-free helper to add a powerful `|toavif` filter to your Timber 2.x projects in WordPress.
+A powerful AVIF and WebP image conversion solution for WordPress + Timber projects.
+
+> **🎉 NEW: Version 3.0 WordPress Plugin Available!**
+> Check out the [v3-plugin branch](../../tree/v3-plugin) for a complete WordPress plugin with admin UI, WebP support, statistics dashboard, and pre-generation features. **Solves the 20+ image timeout problem!**
+> [View v3.0 Documentation](timber-avif-plugin/README.md) | [See Changelog](#version-300---wordpress-plugin-new)
+
+---
+
+## Current Version: 2.5 (Theme File)
+
+This is a single-file, dependency-free helper to add a powerful `|toavif` filter to your Timber 2.x projects in WordPress.
 
 This script enables on-the-fly AVIF image conversion with an intelligent fallback system, mimicking Timber's built-in `|towebp` functionality but for the modern AVIF format.
 
@@ -162,7 +172,63 @@ wp timber-avif cleanup
 
 ## Changelog
 
-### Version 2.5 (Current)
+### Version 3.0.0 - WordPress Plugin (New!)
+**⚠️ Available on `v3-plugin` branch - Complete WordPress Plugin Architecture**
+
+v3.0 is a complete rewrite as a WordPress plugin with major new features and performance improvements. The plugin is **backward compatible** with v2.5 - all your existing Twig templates will work unchanged!
+
+#### Plugin Architecture
+- ✓ **Full WordPress Plugin** - Proper plugin structure with easy installation/activation
+- ✓ **Modular Design** - Separate classes for converter, admin, and core functionality
+- ✓ **Version Management** - Easy updates and rollback capability
+- ✓ **Safe Migration** - Can run alongside v2.5 theme file during testing
+
+#### Major New Features
+- ✓ **WebP Generation** - Automatically generates WebP versions alongside AVIF
+- ✓ **Admin Settings Page** - Visual interface with tabs for General, Quality, Statistics, and Tools
+- ✓ **Statistics Dashboard** - Track conversions, file counts, and storage savings in real-time
+- ✓ **Pre-Generation of Common Sizes** - Generate multiple sizes on upload to eliminate first-load delays
+- ✓ **Timber Resize Hook** - Automatically generates AVIF/WebP when Timber creates resized versions
+- ✓ **Smart Quality Selection** - Dimension-based quality adjustment (lower quality for larger images)
+- ✓ **Browser Capability Detection** - Serves best format based on Accept header
+- ✓ **`|smart` Twig Filter** - NEW filter that automatically returns AVIF → WebP → Original based on browser support
+- ✓ **Bulk Conversion UI** - Admin interface with AJAX progress tracking
+- ✓ **Enhanced WP-CLI** - New `stats` command and improved bulk operations
+
+#### Performance Improvements for Large Pages
+- **Solves the 20+ image timeout problem!** Pre-generation eliminates conversion overhead on page load
+- **Zero first-load conversion** when pre-generation is enabled
+- **Instant subsequent loads** with comprehensive caching
+- **Non-blocking architecture** returns originals immediately if conversion in progress
+
+#### How It Works with Your Macro
+With v3.0 and pre-generation enabled:
+1. **Upload**: Generates AVIF/WebP for original + common sizes (800, 1200, 1600, 2400px)
+2. **First Page Load**: All files already exist - serves instantly! ⚡
+3. **Your 20+ image pages**: No more timeouts or 500 errors!
+
+#### Installation
+```bash
+# Get v3.0 plugin
+git checkout v3-plugin
+cd timber-avif-plugin
+
+# Install as WordPress plugin
+cp -r timber-avif-plugin /path/to/wp-content/plugins/timber-avif
+```
+
+See the plugin README for complete documentation: `timber-avif-plugin/README.md`
+
+#### Migration from v2.5
+- All v2.5 features retained and enhanced
+- Same Twig filters work (backward compatible)
+- No template changes required
+- Plugin takes priority over theme file automatically
+- Can keep v2.5 as backup during testing
+
+---
+
+### Version 2.5 (Current - Main Branch)
 **Backend Optimization Release**
 
 #### Performance Enhancements
