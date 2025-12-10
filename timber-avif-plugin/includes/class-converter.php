@@ -20,8 +20,9 @@ class Timber_AVIF_Converter {
      * Initialize hooks and filters
      */
     public static function init() {
-        // Register Twig filters
-        add_filter('timber/twig', [__CLASS__, 'add_twig_filters']);
+        // Register Twig filters with priority 5 to run before other filters
+        // This ensures we register before v2.5 theme file or other extensions
+        add_filter('timber/twig', [__CLASS__, 'add_twig_filters'], 5);
 
         // Auto-convert on upload
         add_filter('wp_generate_attachment_metadata', [__CLASS__, 'auto_convert_on_upload'], 10, 2);
@@ -71,29 +72,37 @@ class Timber_AVIF_Converter {
      * Register Twig filters
      */
     public static function add_twig_filters($twig) {
-        // Only register toavif filter (towebp is built into Timber core)
-        // Check if toavif already exists (e.g., from v2.5 theme file)
-        $existing_filter = false;
+        // Check if extensions are already initialized (Twig is locked)
+        // This happens if v2.5 theme file or another plugin already used Twig
         try {
-            $existing_filter = $twig->getFilter('toavif');
-        } catch (\Exception $e) {
-            // getFilter might throw, treat as not existing
-        }
+            // Only register toavif filter (towebp is built into Timber core)
+            // Check if toavif already exists (e.g., from v2.5 theme file)
+            $existing_filter = false;
+            try {
+                $existing_filter = $twig->getFilter('toavif');
+            } catch (\Exception $e) {
+                // getFilter might throw, treat as not existing
+            }
 
-        if (!$existing_filter) {
-            $twig->addFilter(new \Twig\TwigFilter('toavif', [__CLASS__, 'convert_to_avif']));
-        }
+            if (!$existing_filter) {
+                $twig->addFilter(new \Twig\TwigFilter('toavif', [__CLASS__, 'convert_to_avif']));
+            }
 
-        // Add smart filter (new in v3.0)
-        $existing_smart = false;
-        try {
-            $existing_smart = $twig->getFilter('smart');
-        } catch (\Exception $e) {
-            // getFilter might throw, treat as not existing
-        }
+            // Add smart filter (new in v3.0)
+            $existing_smart = false;
+            try {
+                $existing_smart = $twig->getFilter('smart');
+            } catch (\Exception $e) {
+                // getFilter might throw, treat as not existing
+            }
 
-        if (!$existing_smart) {
-            $twig->addFilter(new \Twig\TwigFilter('smart', [__CLASS__, 'get_best_format']));
+            if (!$existing_smart) {
+                $twig->addFilter(new \Twig\TwigFilter('smart', [__CLASS__, 'get_best_format']));
+            }
+        } catch (\LogicException $e) {
+            // Twig extensions already initialized - can't add filters
+            // This means v2.5 theme file or another plugin got there first
+            // Silently skip - the existing filters will work fine
         }
 
         // Note: We don't register 'towebp' as it's built into Timber core
