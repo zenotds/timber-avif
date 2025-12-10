@@ -114,6 +114,53 @@ wp timber-avif clear-cache
 
 -----
 
+## Changelog
+
+### Version 2.0.1 (Current)
+**Major Rewrite - Performance & Reliability Edition**
+
+#### New Features
+- **Capability Detection System**: Detects and caches the best conversion method (GD, ImageMagick, or exec) with 1-week caching
+- **Race Condition Prevention**: File locking mechanism prevents concurrent conversion attempts
+- **Memory Management**: Automatic memory estimation and dynamic PHP memory limit adjustment
+- **File Validation**: Magic byte checking ensures generated AVIF files are not corrupted
+- **Dimension & Size Limits**: Configurable max dimensions (4096px) and file size (50MB) to prevent memory exhaustion
+- **Enhanced Error Handling**: Comprehensive try-catch blocks and validation layers throughout
+- **WP-CLI Utilities**: Added `cleanup` and `detect` commands alongside existing `clear-cache`
+
+#### Performance Improvements
+- Cached conversion method eliminates repeated capability tests
+- Optimized attachment ID lookup with object cache (1-hour TTL)
+- Write permission checks before processing
+- Smart AVIF file reuse with corruption detection
+
+#### Bug Fixes
+- Fixed compatibility with Timber 2.x for direct URL strings
+- Improved theme file and uploads directory path resolution
+- Added proper cleanup of lock files on exceptions
+- Enhanced ImageMagick resource limits (256MB memory, 60s timeout)
+
+#### Code Quality
+- Modern PHP syntax with match expressions
+- Proper constant organization (public config vs private internal)
+- Structured validation workflow
+- Comprehensive inline documentation
+
+---
+
+### Version 1.1
+- Fixed compatibility with Timber 2.x
+- Added support for direct string URLs
+- Various checks and fixes
+
+### Version 1.0
+- Initial release
+- Basic AVIF conversion with GD, ImageMagick, and exec fallbacks
+- Quality-aware filename generation
+- Simple caching mechanism
+
+-----
+
 ## License
 
 This project is licensed under the MIT License.
