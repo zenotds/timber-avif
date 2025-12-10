@@ -35,11 +35,8 @@ register_activation_hook(__FILE__, function() {
         wp_die('Timber AVIF Converter requires PHP 8.1 or higher.');
     }
 
-    // Check if Timber is available
-    if (!class_exists('Timber\Timber')) {
-        deactivate_plugins(plugin_basename(__FILE__));
-        wp_die('Timber AVIF Converter requires Timber plugin to be installed and activated.');
-    }
+    // Note: We can't check for Timber here as it might be loaded via Composer in theme
+    // The check will happen in timber_avif_init() instead
 });
 
 /**
@@ -53,10 +50,12 @@ require_once TIMBER_AVIF_PLUGIN_DIR . 'includes/class-admin.php';
  */
 function timber_avif_init() {
     // Check if Timber is available
-    if (!class_exists('Timber\Timber')) {
+    // Use after_setup_theme priority to ensure theme's Composer autoload has run
+    if (!class_exists('Timber\Timber') && !class_exists('Timber')) {
         add_action('admin_notices', function() {
             echo '<div class="notice notice-error"><p>';
-            echo '<strong>Timber AVIF Converter:</strong> Timber plugin is required. Please install and activate Timber.';
+            echo '<strong>Timber AVIF Converter:</strong> Timber 2.0+ is required. ';
+            echo 'Install via Composer in your theme: <code>composer require timber/timber</code>';
             echo '</p></div>';
         });
         return;
@@ -70,7 +69,8 @@ function timber_avif_init() {
         Timber_AVIF_Admin::init();
     }
 }
-add_action('plugins_loaded', 'timber_avif_init');
+// Use after_setup_theme with late priority to ensure Composer autoload has run
+add_action('after_setup_theme', 'timber_avif_init', 20);
 
 /**
  * Add settings link on plugins page
