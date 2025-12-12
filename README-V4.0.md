@@ -25,7 +25,7 @@ All Twig and PHP APIs are identical to the theme version:
 {{ img.image(hero, { atf: true }) }}
 ```
 
-Admin + CLI live under Tools and `wp timber-avif` respectively.
+Admin lives under Settings → Timber AVIF (Settings/Tools tabs). CLI lives under `wp timber-avif`.
 
 ## Settings
 Same options as v3 (shared via the `timber_avif_settings` option):

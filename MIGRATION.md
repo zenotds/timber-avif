@@ -5,7 +5,7 @@ Upgrade paths for the new v3.0 theme drop-in and v4.0 plugin.
 ## From v2.5.x (theme file) → v3.0
 1. Replace your old `avif.php` with the new one (require it once in `functions.php`).
 2. Replace your responsive macro with `macros.twig` (or import the plugin copy).
-3. Visit **Tools → Timber AVIF** to set quality, enable WebP, and optionally warm breakpoint widths.
+3. Visit **Settings → Timber AVIF** to set quality, enable WebP, and optionally warm breakpoint widths.
 4. Run a bulk conversion:
    ```bash
    wp timber-avif bulk --webp

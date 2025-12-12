@@ -107,17 +107,22 @@
         {% set baseWidth = baseSize[0] %}
         {% set baseHeight = baseSize[1] is defined ? baseSize[1] : null %}
 
+        {# Determine best available format (server-side) #}
+        {% set baseAvif = config.avif ? (image|avif_src) : null %}
+        {% set baseWebp = config.webp ? (image|webp_src) : null %}
+        {% set hasAvif = baseAvif and (baseAvif ends with '.avif') %}
+        {% set hasWebp = baseWebp and (baseWebp ends with '.webp') %}
+        {% set useAvif = hasAvif %}
+        {% set useWebp = (not useAvif) and hasWebp %}
+
         <picture
             class="picture {{ config.pictureClass }}">
-            {# AVIF sources - one per breakpoint #}
-            {% if config.avif %}
+            {# Preferred format (AVIF > WebP). We emit only one optimized format set #}
+            {% if useAvif %}
                 {% for source in pictureSources %}
                     <source {% if source.media %} media="{{ source.media }}" {% endif %} srcset="{{ (source.avif1x ?: source.src1x|toavif) }} 1x, {{ (source.avif2x ?: source.src2x|toavif) }} 2x" type="image/avif"/>
                 {% endfor %}
-            {% endif %}
-
-            {# WebP sources - one per breakpoint #}
-            {% if config.webp %}
+            {% elseif useWebp %}
                 {% for source in pictureSources %}
                     <source {% if source.media %} media="{{ source.media }}" {% endif %} srcset="{{ (source.webp1x ?: source.src1x|towebp) }} 1x, {{ (source.webp2x ?: source.src2x|towebp) }} 2x" type="image/webp"/>
                 {% endfor %}

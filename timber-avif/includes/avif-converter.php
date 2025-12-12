@@ -88,8 +88,8 @@ class AVIFConverter {
      */
     private static function load_settings() {
         $defaults = [
-            'auto_convert_uploads'   => true,
-            'enable_webp'            => true,
+            'generate_avif_uploads'  => true,
+            'generate_webp_uploads'  => true,
             'avif_quality'           => self::DEFAULT_AVIF_QUALITY,
             'webp_quality'           => self::DEFAULT_WEBP_QUALITY,
             'only_if_smaller'        => self::ONLY_IF_SMALLER,
@@ -100,6 +100,15 @@ class AVIFConverter {
         ];
 
         $saved = get_option(self::OPTION_KEY, []);
+
+        // Backfill legacy keys
+        if (isset($saved['auto_convert_uploads'])) {
+            $saved['generate_avif_uploads'] = (bool) $saved['auto_convert_uploads'];
+        }
+        if (isset($saved['enable_webp'])) {
+            $saved['generate_webp_uploads'] = (bool) $saved['enable_webp'];
+        }
+
         self::$settings = wp_parse_args($saved, $defaults);
 
         if (empty($saved)) {
@@ -136,8 +145,10 @@ class AVIFConverter {
      */
     public static function handle_timber_resize($new_url) {
         // Kick off conversions but don't block rendering
-        self::convert_async($new_url, 'avif');
-        if (self::get_setting('enable_webp')) {
+        if (self::get_setting('generate_avif_uploads')) {
+            self::convert_async($new_url, 'avif');
+        }
+        if (self::get_setting('generate_webp_uploads')) {
             self::convert_async($new_url, 'webp');
         }
         return $new_url;
@@ -147,7 +158,7 @@ class AVIFConverter {
      * Convert original + registered sizes after upload
      */
     public static function generate_for_upload($metadata, $attachment_id) {
-        if (!self::get_setting('auto_convert_uploads')) {
+        if (!self::get_setting('generate_avif_uploads') && !self::get_setting('generate_webp_uploads')) {
             return $metadata;
         }
 
@@ -159,8 +170,10 @@ class AVIFConverter {
         $upload_dir = wp_upload_dir();
         $base_url = trailingslashit($upload_dir['baseurl']) . ltrim($metadata['file'], '/');
 
-        self::convert_async($base_url, 'avif');
-        if (self::get_setting('enable_webp')) {
+        if (self::get_setting('generate_avif_uploads')) {
+            self::convert_async($base_url, 'avif');
+        }
+        if (self::get_setting('generate_webp_uploads')) {
             self::convert_async($base_url, 'webp');
         }
 
@@ -171,8 +184,10 @@ class AVIFConverter {
                     continue;
                 }
                 $size_url = trailingslashit(dirname($base_url)) . $size['file'];
-                self::convert_async($size_url, 'avif');
-                if (self::get_setting('enable_webp')) {
+                if (self::get_setting('generate_avif_uploads')) {
+                    self::convert_async($size_url, 'avif');
+                }
+                if (self::get_setting('generate_webp_uploads')) {
                     self::convert_async($size_url, 'webp');
                 }
             }
@@ -184,8 +199,10 @@ class AVIFConverter {
             foreach ($widths as $width) {
                 $resized = self::maybe_resize($base_url, $width, null);
                 if ($resized) {
-                    self::convert_async($resized, 'avif');
-                    if (self::get_setting('enable_webp')) {
+                    if (self::get_setting('generate_avif_uploads')) {
+                        self::convert_async($resized, 'avif');
+                    }
+                    if (self::get_setting('generate_webp_uploads')) {
                         self::convert_async($resized, 'webp');
                     }
                 }
@@ -196,14 +213,14 @@ class AVIFConverter {
     }
 
     /**
-     * Register admin screen under Tools
+     * Register admin screen under Settings
      */
     public static function register_admin_page() {
-        add_management_page(
+        add_options_page(
             'Timber AVIF',
             'Timber AVIF',
             'manage_options',
-            'timber-avif',
+            'timber-avif-settings',
             [__CLASS__, 'render_admin_page']
         );
     }
@@ -217,66 +234,92 @@ class AVIFConverter {
         }
 
         $settings = self::$settings;
+        $tab = sanitize_key($_GET['tab'] ?? 'settings');
+        $base_url = admin_url('options-general.php?page=timber-avif-settings');
         ?>
         <div class="wrap">
-            <h1>Timber AVIF Tools</h1>
-            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                <?php wp_nonce_field('timber_avif_settings'); ?>
-                <input type="hidden" name="action" value="timber_avif_tools" />
-                <input type="hidden" name="subaction" value="save_settings" />
+            <h1>Timber AVIF</h1>
+            <h2 class="nav-tab-wrapper">
+                <a href="<?php echo esc_url(add_query_arg('tab', 'settings', $base_url)); ?>" class="nav-tab <?php echo $tab === 'settings' ? 'nav-tab-active' : ''; ?>">Settings</a>
+                <a href="<?php echo esc_url(add_query_arg('tab', 'tools', $base_url)); ?>" class="nav-tab <?php echo $tab === 'tools' ? 'nav-tab-active' : ''; ?>">Tools</a>
+            </h2>
 
-                <h2 class="title">Settings</h2>
-                <table class="form-table" role="presentation">
-                    <tr>
-                        <th scope="row">Auto-convert uploads</th>
-                        <td><label><input type="checkbox" name="auto_convert_uploads" value="1" <?php checked($settings['auto_convert_uploads']); ?> /> Enable AVIF/WebP generation on upload</label></td>
-                    </tr>
-                    <tr>
-                        <th scope="row">WebP support</th>
-                        <td><label><input type="checkbox" name="enable_webp" value="1" <?php checked($settings['enable_webp']); ?> /> Generate WebP variants alongside AVIF</label></td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Quality</th>
-                        <td>
-                            <label>AVIF <input type="number" name="avif_quality" min="1" max="100" value="<?php echo esc_attr($settings['avif_quality']); ?>" /></label>
-                            <label style="margin-left:1rem;">WebP <input type="number" name="webp_quality" min="1" max="100" value="<?php echo esc_attr($settings['webp_quality']); ?>" /></label>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Size safeguards</th>
-                        <td>
-                            <label>Max dimension <input type="number" name="max_dimension" value="<?php echo esc_attr($settings['max_dimension']); ?>" /></label>
-                            <label style="margin-left:1rem;">Max file size MB <input type="number" name="max_file_size" step="1" value="<?php echo esc_attr($settings['max_file_size']); ?>" /></label>
-                            <label style="margin-left:1rem;"><input type="checkbox" name="only_if_smaller" value="1" <?php checked($settings['only_if_smaller']); ?> /> Only keep converted file if smaller</label>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Pregenerate widths</th>
-                        <td>
-                            <label><input type="checkbox" name="pregenerate_breakpoints" value="1" <?php checked($settings['pregenerate_breakpoints']); ?> /> Generate breakpoints on upload</label><br/>
-                            <input type="text" name="breakpoint_widths" value="<?php echo esc_attr($settings['breakpoint_widths']); ?>" class="regular-text" />
-                            <p class="description">Comma-separated widths (px) used to warm responsive caches.</p>
-                        </td>
-                    </tr>
-                </table>
-                <?php submit_button('Save settings'); ?>
-            </form>
+            <?php if ($tab === 'tools'): ?>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-top:1rem;">
+                    <?php wp_nonce_field('timber_avif_tools'); ?>
+                    <input type="hidden" name="action" value="timber_avif_tools" />
+                    <input type="hidden" name="subaction" value="bulk_convert" />
+                    <input type="hidden" name="tab" value="tools" />
+                    <?php submit_button('Bulk convert existing media'); ?>
+                </form>
 
-            <hr />
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-top:1rem;">
+                    <?php wp_nonce_field('timber_avif_tools'); ?>
+                    <input type="hidden" name="action" value="timber_avif_tools" />
+                    <input type="hidden" name="subaction" value="clear_cache" />
+                    <input type="hidden" name="tab" value="tools" />
+                    <?php submit_button('Clear caches / capability detection', 'secondary'); ?>
+                </form>
+            <?php else: ?>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <?php wp_nonce_field('timber_avif_settings'); ?>
+                    <input type="hidden" name="action" value="timber_avif_tools" />
+                    <input type="hidden" name="subaction" value="save_settings" />
+                    <input type="hidden" name="tab" value="settings" />
 
-            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                <?php wp_nonce_field('timber_avif_tools'); ?>
-                <input type="hidden" name="action" value="timber_avif_tools" />
-                <input type="hidden" name="subaction" value="bulk_convert" />
-                <?php submit_button('Bulk convert existing media'); ?>
-            </form>
-
-            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-top:1rem;">
-                <?php wp_nonce_field('timber_avif_tools'); ?>
-                <input type="hidden" name="action" value="timber_avif_tools" />
-                <input type="hidden" name="subaction" value="clear_cache" />
-                <?php submit_button('Clear caches / capability detection', 'secondary'); ?>
-            </form>
+                    <h2 class="title">Generation</h2>
+                    <table class="form-table" role="presentation">
+                        <tr>
+                            <th scope="row">Generate AVIF on upload</th>
+                            <td>
+                                <select name="generate_avif_uploads">
+                                    <option value="1" <?php selected($settings['generate_avif_uploads']); ?>>Yes</option>
+                                    <option value="0" <?php selected(!$settings['generate_avif_uploads']); ?>>No</option>
+                                </select>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Generate WebP on upload</th>
+                            <td>
+                                <select name="generate_webp_uploads">
+                                    <option value="1" <?php selected($settings['generate_webp_uploads']); ?>>Yes</option>
+                                    <option value="0" <?php selected(!$settings['generate_webp_uploads']); ?>>No</option>
+                                </select>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Quality</th>
+                            <td>
+                                <label>AVIF
+                                    <input type="range" name="avif_quality" min="1" max="100" value="<?php echo esc_attr($settings['avif_quality']); ?>" oninput="this.nextElementSibling.innerHTML=this.value" />
+                                    <span><?php echo esc_html($settings['avif_quality']); ?></span>
+                                </label>
+                                <label style="margin-left:1rem;">WebP
+                                    <input type="range" name="webp_quality" min="1" max="100" value="<?php echo esc_attr($settings['webp_quality']); ?>" oninput="this.nextElementSibling.innerHTML=this.value" />
+                                    <span><?php echo esc_html($settings['webp_quality']); ?></span>
+                                </label>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Size safeguards</th>
+                            <td>
+                                <label>Max dimension <input type="number" name="max_dimension" value="<?php echo esc_attr($settings['max_dimension']); ?>" /></label>
+                                <label style="margin-left:1rem;">Max file size MB <input type="number" name="max_file_size" step="1" value="<?php echo esc_attr($settings['max_file_size']); ?>" /></label>
+                                <label style="margin-left:1rem;"><input type="checkbox" name="only_if_smaller" value="1" <?php checked($settings['only_if_smaller']); ?> /> Only keep converted file if smaller</label>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Pregenerate widths</th>
+                            <td>
+                                <label><input type="checkbox" name="pregenerate_breakpoints" value="1" <?php checked($settings['pregenerate_breakpoints']); ?> /> Generate breakpoints on upload</label><br/>
+                                <input type="text" name="breakpoint_widths" value="<?php echo esc_attr($settings['breakpoint_widths']); ?>" class="regular-text" />
+                                <p class="description">Comma-separated widths (px) used to warm responsive caches.</p>
+                            </td>
+                        </tr>
+                    </table>
+                    <?php submit_button('Save settings'); ?>
+                </form>
+            <?php endif; ?>
         </div>
         <?php
     }
@@ -290,11 +333,12 @@ class AVIFConverter {
         }
 
         $subaction = sanitize_text_field($_POST['subaction'] ?? '');
+        $tab = sanitize_key($_POST['tab'] ?? 'settings');
 
         if ($subaction === 'save_settings') {
             check_admin_referer('timber_avif_settings');
-            self::$settings['auto_convert_uploads'] = !empty($_POST['auto_convert_uploads']);
-            self::$settings['enable_webp'] = !empty($_POST['enable_webp']);
+            self::$settings['generate_avif_uploads'] = isset($_POST['generate_avif_uploads']) ? (bool) intval($_POST['generate_avif_uploads']) : true;
+            self::$settings['generate_webp_uploads'] = isset($_POST['generate_webp_uploads']) ? (bool) intval($_POST['generate_webp_uploads']) : true;
             self::$settings['avif_quality'] = max(1, min(100, intval($_POST['avif_quality'] ?? self::DEFAULT_AVIF_QUALITY)));
             self::$settings['webp_quality'] = max(1, min(100, intval($_POST['webp_quality'] ?? self::DEFAULT_WEBP_QUALITY)));
             self::$settings['only_if_smaller'] = !empty($_POST['only_if_smaller']);
@@ -303,7 +347,7 @@ class AVIFConverter {
             self::$settings['pregenerate_breakpoints'] = !empty($_POST['pregenerate_breakpoints']);
             self::$settings['breakpoint_widths'] = sanitize_text_field($_POST['breakpoint_widths'] ?? '');
             update_option(self::OPTION_KEY, self::$settings);
-            wp_safe_redirect(add_query_arg('updated', 'true', admin_url('tools.php?page=timber-avif')));
+            wp_safe_redirect(add_query_arg(['updated' => 'true', 'tab' => $tab], admin_url('options-general.php?page=timber-avif-settings')));
             exit;
         }
 
@@ -311,17 +355,17 @@ class AVIFConverter {
 
         if ($subaction === 'bulk_convert') {
             self::bulk_convert_media();
-            wp_safe_redirect(add_query_arg('converted', 'true', admin_url('tools.php?page=timber-avif')));
+            wp_safe_redirect(add_query_arg(['converted' => 'true', 'tab' => $tab], admin_url('options-general.php?page=timber-avif-settings')));
             exit;
         }
 
         if ($subaction === 'clear_cache') {
             self::clear_cache();
-            wp_safe_redirect(add_query_arg('cleared', 'true', admin_url('tools.php?page=timber-avif')));
+            wp_safe_redirect(add_query_arg(['cleared' => 'true', 'tab' => $tab], admin_url('options-general.php?page=timber-avif-settings')));
             exit;
         }
 
-        wp_safe_redirect(admin_url('tools.php?page=timber-avif'));
+        wp_safe_redirect(admin_url('options-general.php?page=timber-avif-settings'));
         exit;
     }
 
@@ -329,16 +373,18 @@ class AVIFConverter {
      * Wrapper for Twig filter (AVIF)
      */
     public static function convert_to_avif($src, $quality = null, $force = false) {
-        $quality = $quality ? intval($quality) : self::get_setting('avif_quality', self::DEFAULT_AVIF_QUALITY);
-        return self::convert($src, 'avif', $quality, $force);
+        $quality_provided = ($quality !== null);
+        $quality = $quality_provided ? intval($quality) : self::get_setting('avif_quality', self::DEFAULT_AVIF_QUALITY);
+        return self::convert($src, 'avif', $quality, $force, $quality_provided);
     }
 
     /**
      * WebP helper (used by Twig function/filter)
      */
     public static function convert_to_webp($src, $quality = null, $force = false) {
-        $quality = $quality ? intval($quality) : self::get_setting('webp_quality', self::DEFAULT_WEBP_QUALITY);
-        return self::convert($src, 'webp', $quality, $force);
+        $quality_provided = ($quality !== null);
+        $quality = $quality_provided ? intval($quality) : self::get_setting('webp_quality', self::DEFAULT_WEBP_QUALITY);
+        return self::convert($src, 'webp', $quality, $force, $quality_provided);
     }
 
     /**
@@ -353,8 +399,9 @@ class AVIFConverter {
      * Provide resized WebP URL
      */
     public static function get_webp_variant($src, $width = null, $height = null, $quality = null) {
-        $quality = $quality ? intval($quality) : self::get_setting('webp_quality', self::DEFAULT_WEBP_QUALITY);
-        if (!self::get_setting('enable_webp')) {
+        $quality_provided = ($quality !== null);
+        $quality = $quality_provided ? intval($quality) : self::get_setting('webp_quality', self::DEFAULT_WEBP_QUALITY);
+        if (!self::get_setting('generate_webp_uploads') && !$quality_provided && !$width && !$height) {
             return is_string($src) ? $src : ($src instanceof Image ? $src->src : '');
         }
         return self::get_variant_url($src, 'webp', $width, $height, $quality);
@@ -363,7 +410,7 @@ class AVIFConverter {
     /**
      * Main conversion handler
      */
-    private static function convert($src, $format, $quality, $force) {
+    private static function convert($src, $format, $quality, $force, $custom_quality = false) {
         if (empty($src)) {
             return '';
         }
@@ -404,7 +451,7 @@ class AVIFConverter {
         }
 
         // Destination
-        $dest_path = self::get_destination_path($file_path, $quality, $format);
+        $dest_path = self::get_destination_path($file_path, $quality, $format, $custom_quality);
         $dest_url = str_replace(wp_basename($file_path), wp_basename($dest_path), $original_url);
 
         // If file already exists and valid, return it
@@ -761,10 +808,13 @@ class AVIFConverter {
     /**
      * Paths and metadata helpers
      */
-    private static function get_destination_path($file_path, $quality, $format) {
+    private static function get_destination_path($file_path, $quality, $format, $custom_quality = false) {
         $filename = pathinfo($file_path, PATHINFO_FILENAME);
         $dirname = pathinfo($file_path, PATHINFO_DIRNAME);
-        $suffix = ($quality === ($format === 'webp' ? self::DEFAULT_WEBP_QUALITY : self::DEFAULT_AVIF_QUALITY)) ? '' : "-q{$quality}";
+        $default_quality = ($format === 'webp')
+            ? self::get_setting('webp_quality', self::DEFAULT_WEBP_QUALITY)
+            : self::get_setting('avif_quality', self::DEFAULT_AVIF_QUALITY);
+        $suffix = ($custom_quality && $quality !== $default_quality) ? "-q{$quality}" : '';
         $ext = $format === 'webp' ? 'webp' : 'avif';
         return "{$dirname}/{$filename}{$suffix}.{$ext}";
     }
@@ -947,7 +997,7 @@ class AVIFConverter {
             }
             $url = wp_get_attachment_url($attachment_id);
             self::convert_to_avif($url, self::get_setting('avif_quality', self::DEFAULT_AVIF_QUALITY));
-            if (self::get_setting('enable_webp')) {
+            if (self::get_setting('generate_webp_uploads')) {
                 self::convert_to_webp($url, self::get_setting('webp_quality', self::DEFAULT_WEBP_QUALITY));
             }
         }
@@ -989,7 +1039,7 @@ class AVIFConverter {
         WP_CLI::add_command('timber-avif bulk', function ($args, $assoc_args) {
             $quality = isset($assoc_args['quality']) ? intval($assoc_args['quality']) : self::get_setting('avif_quality', self::DEFAULT_AVIF_QUALITY);
             $webp_quality = isset($assoc_args['webp-quality']) ? intval($assoc_args['webp-quality']) : self::get_setting('webp_quality', self::DEFAULT_WEBP_QUALITY);
-            $enable_webp = isset($assoc_args['webp']) ? filter_var($assoc_args['webp'], FILTER_VALIDATE_BOOLEAN) : self::get_setting('enable_webp');
+            $enable_webp = isset($assoc_args['webp']) ? filter_var($assoc_args['webp'], FILTER_VALIDATE_BOOLEAN) : self::get_setting('generate_webp_uploads');
 
             WP_CLI::log("Bulk converting media (AVIF {$quality}, WebP {$webp_quality}, webp: " . ($enable_webp ? 'yes' : 'no') . ' )');
 

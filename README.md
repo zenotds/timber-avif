@@ -25,6 +25,8 @@ require_once get_template_directory() . '/inc/avif.php';
 {{ img.image(post.thumbnail, { sizes: { 'lg': [1600, 900] } }) }}
 ```
 
+Open **Settings → Timber AVIF** to configure (Settings/Tools tabs).
+
 ## Requirements
 - WordPress 5.0+
 - PHP 8.1+

@@ -20,8 +20,9 @@ require_once get_template_directory() . '/inc/avif.php';
 ```
 3) Copy `macros.twig` into your Twig path (or import from this repo).
 
-## Settings (Tools → Timber AVIF)
-- Auto-convert uploads (AVIF + optional WebP)
+## Settings (Settings → Timber AVIF)
+- Generate AVIF on upload (toggle)
+- Generate WebP on upload (toggle)
 - Quality sliders for both formats
 - Only keep converted file if smaller
 - Max dimension / file size safeguards
