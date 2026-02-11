@@ -10,9 +10,8 @@
    - "Optimized" column appears in the Media library
 
 ### Macro (`macros.twig`)
-1. Replace your macro file with the new one.
-2. Breaking change: the `ximage` macro has been removed. If you were using it, switch to `image` (same API).
-3. Behavioral changes (no template edits required):
+1. Replace your macro file with the new one
+2. Behavioral changes (no template edits required):
    - Media queries now use `(min-width)` only, ordered largest to smallest (fixes overlap at exact breakpoints)
    - 2x srcset is capped at original image dimensions (avoids requesting sizes larger than the source)
    - `alt` attribute uses `image.alt` with `image.title` fallback (proper accessibility field)
