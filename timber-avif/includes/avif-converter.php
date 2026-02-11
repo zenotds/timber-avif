@@ -1,6 +1,9 @@
 <?php
 /**
- * Timber AVIF Converter - v3.0.0
+ * Timber AVIF Converter
+ *
+ * @version 4.0.0
+ * @author Francesco Zeno Selva
  *
  * Lightweight drop-in for Timber 2.3 that adds AVIF + WebP conversion, Twig helpers,
  * upload-time generation, responsive macros support and simple admin tools.
@@ -9,6 +12,7 @@
  * New helpers expose `image.avif` / `image.webp` and `|avif_src` / `|webp_src`
  * for quickly grabbing converted URLs (with resize support).
  */
+
 
 use Timber\Image;
 use Timber\ImageHelper;
@@ -70,6 +74,11 @@ class AVIFConverter {
         add_action('wp_generate_attachment_metadata', [__CLASS__, 'generate_for_upload'], 20, 2);
         add_action('admin_menu', [__CLASS__, 'register_admin_page']);
         add_action('admin_post_timber_avif_tools', [__CLASS__, 'handle_admin_post']);
+        add_action('wp_ajax_timber_avif_bulk_batch', [__CLASS__, 'handle_ajax_bulk_batch']);
+        add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_admin_scripts']);
+        add_filter('manage_media_columns', [__CLASS__, 'add_media_column']);
+        add_action('manage_media_custom_column', [__CLASS__, 'render_media_column'], 10, 2);
+        add_action('admin_head', [__CLASS__, 'media_column_css']);
 
         // Detect capabilities early
         add_action('init', function () {
@@ -209,6 +218,9 @@ class AVIFConverter {
             }
         }
 
+        // Invalidate statistics cache so the Stats tab is fresh
+        delete_transient(self::CACHE_PREFIX . 'statistics');
+
         return $metadata;
     }
 
@@ -226,6 +238,74 @@ class AVIFConverter {
     }
 
     /**
+     * Gather conversion statistics
+     */
+    public static function get_statistics() {
+        $cache_key = self::CACHE_PREFIX . 'statistics';
+        $cached = get_transient($cache_key);
+        if ($cached !== false) {
+            return $cached;
+        }
+
+        $upload_dir = wp_upload_dir();
+        $base_dir = $upload_dir['basedir'];
+
+        $image_ids = get_posts([
+            'post_type'      => 'attachment',
+            'post_mime_type' => ['image/jpeg', 'image/png', 'image/gif'],
+            'posts_per_page' => -1,
+            'post_status'    => 'any',
+            'fields'         => 'ids',
+        ]);
+
+        $stats = [
+            'total_images'    => count($image_ids),
+            'avif_converted'  => 0,
+            'webp_converted'  => 0,
+            'original_size'   => 0,
+            'avif_size'       => 0,
+            'webp_size'       => 0,
+        ];
+
+        foreach ($image_ids as $id) {
+            $file = get_attached_file($id);
+            if (!$file || !file_exists($file)) {
+                continue;
+            }
+
+            $stats['original_size'] += filesize($file);
+
+            $avif_path = preg_replace('/\.(jpe?g|png|gif)$/i', '.avif', $file);
+            if (file_exists($avif_path)) {
+                $stats['avif_converted']++;
+                $stats['avif_size'] += filesize($avif_path);
+            }
+
+            $webp_path = preg_replace('/\.(jpe?g|png|gif)$/i', '.webp', $file);
+            if (file_exists($webp_path)) {
+                $stats['webp_converted']++;
+                $stats['webp_size'] += filesize($webp_path);
+            }
+        }
+
+        $stats['avif_saved'] = $stats['avif_size'] > 0 ? $stats['original_size'] - $stats['avif_size'] : 0;
+        $stats['webp_saved'] = $stats['webp_size'] > 0 ? $stats['original_size'] - $stats['webp_size'] : 0;
+
+        set_transient($cache_key, $stats, 5 * MINUTE_IN_SECONDS);
+        return $stats;
+    }
+
+    /**
+     * Format bytes to human-readable size
+     */
+    private static function format_bytes($bytes, $decimals = 1) {
+        if ($bytes <= 0) return '0 B';
+        $units = ['B', 'KB', 'MB', 'GB'];
+        $factor = floor(log($bytes, 1024));
+        return round($bytes / pow(1024, $factor), $decimals) . ' ' . $units[$factor];
+    }
+
+    /**
      * Render admin page
      */
     public static function render_admin_page() {
@@ -236,30 +316,282 @@ class AVIFConverter {
         $settings = self::$settings;
         $tab = sanitize_key($_GET['tab'] ?? 'settings');
         $base_url = admin_url('options-general.php?page=timber-avif-settings');
+
+        // Capability detection
+        $avif_method = self::detect_capabilities('avif');
+        $webp_method = self::detect_capabilities('webp');
+
+        $method_labels = [
+            'gd'      => 'GD Library',
+            'imagick' => 'ImageMagick',
+            'exec'    => 'CLI (magick)',
+            'none'    => 'Not available',
+        ];
         ?>
-        <div class="wrap">
+        <style>
+            .tavif-wrap { max-width: 860px; }
+            .tavif-header { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+            .tavif-header h1 { margin: 0; padding: 0; line-height: 1.2; }
+            .tavif-version { font-size: 11px; color: #646970; background: #f0f0f1; padding: 2px 8px; border-radius: 10px; font-weight: 400; }
+            .tavif-wrap .nav-tab-wrapper { margin-bottom: 0; border-bottom: 1px solid #c3c4c7; }
+            .tavif-card { background: #fff; border: 1px solid #c3c4c7; border-top: 0; padding: 24px 28px; margin-bottom: 20px; }
+
+            /* Status bar */
+            .tavif-status { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 16px 0 20px; }
+            .tavif-status-item { background: #fff; border: 1px solid #dcdcde; border-radius: 6px; padding: 16px 18px; }
+            .tavif-status-item .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #646970; margin-bottom: 6px; }
+            .tavif-status-item .value { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+            .tavif-status-item .engine-detail { font-size: 11px; font-weight: 400; color: #646970; }
+
+            /* Badges */
+            .tavif-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; line-height: 1; }
+            .tavif-badge--ok { background: #d1fae5; color: #065f46; }
+            .tavif-badge--warn { background: #fef3c7; color: #92400e; }
+            .tavif-badge--off { background: #f3f4f6; color: #6b7280; }
+            .tavif-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+            .tavif-dot--ok { background: #10b981; }
+            .tavif-dot--warn { background: #f59e0b; }
+            .tavif-dot--off { background: #9ca3af; }
+
+            /* Toggles */
+            .tavif-toggle { position: relative; display: inline-flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+            .tavif-toggle input[type="checkbox"] { position: absolute; opacity: 0; width: 0; height: 0; }
+            .tavif-toggle .slider { width: 40px; height: 22px; background: #d1d5db; border-radius: 11px; position: relative; transition: background 0.2s; flex-shrink: 0; }
+            .tavif-toggle .slider::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: transform 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+            .tavif-toggle input:checked + .slider { background: #2271b1; }
+            .tavif-toggle input:checked + .slider::after { transform: translateX(18px); }
+            .tavif-toggle .toggle-label { font-size: 13px; }
+
+            /* Range sliders */
+            .tavif-range-group { margin-bottom: 16px; }
+            .tavif-range-group label { display: flex; align-items: center; gap: 12px; font-weight: 500; font-size: 13px; }
+            .tavif-range-group input[type="range"] { flex: 1; max-width: 280px; accent-color: #2271b1; height: 6px; }
+            .tavif-range-group .range-val { display: inline-block; min-width: 36px; text-align: center; font-weight: 600; font-size: 13px; background: #f0f0f1; padding: 3px 10px; border-radius: 4px; font-variant-numeric: tabular-nums; }
+            .tavif-range-group .range-label { min-width: 42px; }
+
+            /* Field rows */
+            .tavif-field-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+            .tavif-field-row label { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+            .tavif-field-row input[type="number"] { width: 90px; }
+            .tavif-field-row input[type="text"].regular-text { max-width: 320px; }
+
+            /* Sections */
+            .tavif-section { margin-bottom: 28px; }
+            .tavif-section:last-child { margin-bottom: 0; }
+            .tavif-section h3 { font-size: 13px; font-weight: 600; color: #1d2327; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid #e5e7eb; text-transform: uppercase; letter-spacing: 0.3px; }
+
+            /* Tool cards */
+            .tavif-tools-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+            .tavif-tool-card { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 22px; display: flex; flex-direction: column; }
+            .tavif-tool-card h3 { margin: 0 0 8px; font-size: 14px; color: #1d2327; }
+            .tavif-tool-card p { color: #6b7280; font-size: 13px; margin: 0 0 18px; line-height: 1.5; flex: 1; }
+            .tavif-tool-card .button { align-self: flex-start; }
+
+            /* Stats */
+            .tavif-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }
+            .tavif-stat-card { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 18px; text-align: center; }
+            .tavif-stat-card .stat-value { font-size: 28px; font-weight: 700; color: #1d2327; line-height: 1.2; font-variant-numeric: tabular-nums; }
+            .tavif-stat-card .stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; margin-top: 4px; }
+            .tavif-stat-card .stat-sub { font-size: 12px; color: #9ca3af; margin-top: 2px; }
+            .tavif-stat-card--highlight { background: #eff6ff; border-color: #bfdbfe; }
+            .tavif-stat-card--highlight .stat-value { color: #1d4ed8; }
+            .tavif-stat-card--green { background: #ecfdf5; border-color: #a7f3d0; }
+            .tavif-stat-card--green .stat-value { color: #065f46; }
+            .tavif-progress { margin-bottom: 24px; }
+            .tavif-progress h3 { font-size: 13px; font-weight: 600; margin: 0 0 12px; color: #1d2327; }
+            .tavif-progress-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; font-size: 13px; }
+            .tavif-progress-row .bar-label { min-width: 48px; font-weight: 500; }
+            .tavif-progress-row .bar-wrap { flex: 1; height: 24px; background: #f3f4f6; border-radius: 4px; overflow: hidden; position: relative; }
+            .tavif-progress-row .bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; min-width: 2px; }
+            .tavif-progress-row .bar-fill--avif { background: linear-gradient(90deg, #6366f1, #818cf8); }
+            .tavif-progress-row .bar-fill--webp { background: linear-gradient(90deg, #2563eb, #60a5fa); }
+            .tavif-progress-row .bar-text { font-size: 12px; color: #6b7280; min-width: 80px; text-align: right; }
+        </style>
+
+        <div class="wrap tavif-wrap">
             <h1>Timber AVIF</h1>
+
+            <?php // Status bar ?>
+            <div class="tavif-status">
+                <div class="tavif-status-item">
+                    <div class="label">AVIF Engine</div>
+                    <div class="value">
+                        <span class="tavif-dot tavif-dot--<?php echo $avif_method !== 'none' ? 'ok' : 'warn'; ?>"></span>
+                        <?php echo esc_html($method_labels[$avif_method] ?? 'Unknown'); ?>
+                    </div>
+                </div>
+                <div class="tavif-status-item">
+                    <div class="label">WebP Engine</div>
+                    <div class="value">
+                        <span class="tavif-dot tavif-dot--<?php echo $webp_method !== 'none' ? 'ok' : 'warn'; ?>"></span>
+                        <?php echo esc_html($method_labels[$webp_method] ?? 'Unknown'); ?>
+                    </div>
+                </div>
+                <div class="tavif-status-item">
+                    <div class="label">Auto-convert on upload</div>
+                    <div class="value">
+                        <?php
+                        $formats = [];
+                        if ($settings['generate_avif_uploads'] && $avif_method !== 'none') $formats[] = 'AVIF';
+                        if ($settings['generate_webp_uploads'] && $webp_method !== 'none') $formats[] = 'WebP';
+                        ?>
+                        <?php if ($formats): ?>
+                            <span class="tavif-badge tavif-badge--ok"><?php echo esc_html(implode(' + ', $formats)); ?></span>
+                        <?php else: ?>
+                            <span class="tavif-badge tavif-badge--off">Off</span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <div class="tavif-status-item">
+                    <div class="label">Quality</div>
+                    <div class="value">
+                        AVIF <?php echo esc_html($settings['avif_quality']); ?>
+                        &nbsp;&middot;&nbsp;
+                        WebP <?php echo esc_html($settings['webp_quality']); ?>
+                    </div>
+                </div>
+            </div>
+
             <h2 class="nav-tab-wrapper">
                 <a href="<?php echo esc_url(add_query_arg('tab', 'settings', $base_url)); ?>" class="nav-tab <?php echo $tab === 'settings' ? 'nav-tab-active' : ''; ?>">Settings</a>
                 <a href="<?php echo esc_url(add_query_arg('tab', 'tools', $base_url)); ?>" class="nav-tab <?php echo $tab === 'tools' ? 'nav-tab-active' : ''; ?>">Tools</a>
+                <a href="<?php echo esc_url(add_query_arg('tab', 'statistics', $base_url)); ?>" class="nav-tab <?php echo $tab === 'statistics' ? 'nav-tab-active' : ''; ?>">Statistics</a>
             </h2>
 
-            <?php if ($tab === 'tools'): ?>
-                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-top:1rem;">
-                    <?php wp_nonce_field('timber_avif_tools'); ?>
-                    <input type="hidden" name="action" value="timber_avif_tools" />
-                    <input type="hidden" name="subaction" value="bulk_convert" />
-                    <input type="hidden" name="tab" value="tools" />
-                    <?php submit_button('Bulk convert existing media'); ?>
-                </form>
+            <div class="tavif-card">
 
-                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-top:1rem;">
-                    <?php wp_nonce_field('timber_avif_tools'); ?>
-                    <input type="hidden" name="action" value="timber_avif_tools" />
-                    <input type="hidden" name="subaction" value="clear_cache" />
-                    <input type="hidden" name="tab" value="tools" />
-                    <?php submit_button('Clear caches / capability detection', 'secondary'); ?>
-                </form>
+            <?php if ($tab === 'statistics'): ?>
+                <?php $stats = self::get_statistics(); ?>
+
+                <div class="tavif-stats-grid">
+                    <div class="tavif-stat-card">
+                        <div class="stat-value"><?php echo esc_html($stats['total_images']); ?></div>
+                        <div class="stat-label">Total images</div>
+                        <div class="stat-sub">JPG, PNG, GIF</div>
+                    </div>
+                    <div class="tavif-stat-card tavif-stat-card--highlight">
+                        <div class="stat-value"><?php echo esc_html($stats['avif_converted']); ?></div>
+                        <div class="stat-label">AVIF converted</div>
+                        <div class="stat-sub"><?php echo $stats['total_images'] > 0 ? round($stats['avif_converted'] / $stats['total_images'] * 100) : 0; ?>% of library</div>
+                    </div>
+                    <div class="tavif-stat-card tavif-stat-card--highlight">
+                        <div class="stat-value"><?php echo esc_html($stats['webp_converted']); ?></div>
+                        <div class="stat-label">WebP converted</div>
+                        <div class="stat-sub"><?php echo $stats['total_images'] > 0 ? round($stats['webp_converted'] / $stats['total_images'] * 100) : 0; ?>% of library</div>
+                    </div>
+                </div>
+
+                <?php // Progress bars ?>
+                <div class="tavif-progress">
+                    <h3>Conversion progress</h3>
+                    <?php
+                    $avif_pct = $stats['total_images'] > 0 ? round($stats['avif_converted'] / $stats['total_images'] * 100) : 0;
+                    $webp_pct = $stats['total_images'] > 0 ? round($stats['webp_converted'] / $stats['total_images'] * 100) : 0;
+                    ?>
+                    <div class="tavif-progress-row">
+                        <span class="bar-label">AVIF</span>
+                        <div class="bar-wrap">
+                            <div class="bar-fill bar-fill--avif" style="width: <?php echo esc_attr($avif_pct); ?>%"></div>
+                        </div>
+                        <span class="bar-text"><?php echo esc_html($stats['avif_converted']); ?> / <?php echo esc_html($stats['total_images']); ?></span>
+                    </div>
+                    <div class="tavif-progress-row">
+                        <span class="bar-label">WebP</span>
+                        <div class="bar-wrap">
+                            <div class="bar-fill bar-fill--webp" style="width: <?php echo esc_attr($webp_pct); ?>%"></div>
+                        </div>
+                        <span class="bar-text"><?php echo esc_html($stats['webp_converted']); ?> / <?php echo esc_html($stats['total_images']); ?></span>
+                    </div>
+                </div>
+
+                <?php // Space savings ?>
+                <div class="tavif-stats-grid">
+                    <div class="tavif-stat-card">
+                        <div class="stat-value"><?php echo esc_html(self::format_bytes($stats['original_size'])); ?></div>
+                        <div class="stat-label">Original size</div>
+                        <div class="stat-sub">Source images</div>
+                    </div>
+                    <?php if ($stats['avif_converted'] > 0): ?>
+                    <div class="tavif-stat-card tavif-stat-card--green">
+                        <div class="stat-value"><?php echo esc_html(self::format_bytes($stats['avif_saved'])); ?></div>
+                        <div class="stat-label">Saved with AVIF</div>
+                        <div class="stat-sub"><?php echo $stats['original_size'] > 0 ? round($stats['avif_saved'] / $stats['original_size'] * 100) : 0; ?>% smaller</div>
+                    </div>
+                    <?php endif; ?>
+                    <?php if ($stats['webp_converted'] > 0): ?>
+                    <div class="tavif-stat-card tavif-stat-card--green">
+                        <div class="stat-value"><?php echo esc_html(self::format_bytes($stats['webp_saved'])); ?></div>
+                        <div class="stat-label">Saved with WebP</div>
+                        <div class="stat-sub"><?php echo $stats['original_size'] > 0 ? round($stats['webp_saved'] / $stats['original_size'] * 100) : 0; ?>% smaller</div>
+                    </div>
+                    <?php endif; ?>
+                    <?php if ($stats['avif_converted'] === 0 && $stats['webp_converted'] === 0): ?>
+                    <div class="tavif-stat-card">
+                        <div class="stat-value">&mdash;</div>
+                        <div class="stat-label">No conversions yet</div>
+                        <div class="stat-sub">Run bulk convert from Tools tab</div>
+                    </div>
+                    <?php endif; ?>
+                </div>
+
+                <p class="description" style="margin-top: 8px;">Statistics are cached for 5 minutes. Only original-sized images are counted (WordPress thumbnails and Timber resizes are excluded).</p>
+
+            <?php elseif ($tab === 'tools'): ?>
+                <?php
+                $image_ids = get_posts([
+                    'post_type'      => 'attachment',
+                    'post_mime_type' => ['image/jpeg', 'image/png', 'image/gif'],
+                    'posts_per_page' => -1,
+                    'post_status'    => 'any',
+                    'fields'         => 'ids',
+                ]);
+                $image_total = count($image_ids);
+                ?>
+
+                <div class="tavif-tools-grid">
+                    <div class="tavif-tool-card">
+                        <h3>Bulk Convert</h3>
+                        <p>Process all <strong><?php echo esc_html($image_total); ?></strong> images in the media library and generate <?php
+                            $targets = [];
+                            if ($settings['generate_avif_uploads']) $targets[] = 'AVIF';
+                            if ($settings['generate_webp_uploads']) $targets[] = 'WebP';
+                            echo esc_html($targets ? implode(' &amp; ', $targets) : 'AVIF');
+                        ?> variants. Already converted images will be skipped.</p>
+                        <button type="button" id="tavif-bulk-start" class="button button-primary">Convert all media</button>
+                        <div id="tavif-bulk-progress" style="display:none; margin-top: 14px;">
+                            <div style="display:flex; align-items:center; gap:10px; margin-bottom: 6px;">
+                                <div style="flex:1; height:22px; background:#f3f4f6; border-radius:4px; overflow:hidden;">
+                                    <div id="tavif-bulk-bar" style="height:100%; width:0%; background:linear-gradient(90deg,#6366f1,#818cf8); border-radius:4px; transition:width .3s;"></div>
+                                </div>
+                                <span id="tavif-bulk-count" style="font-size:13px; font-variant-numeric:tabular-nums; min-width:80px; text-align:right;">0 / 0</span>
+                            </div>
+                            <p id="tavif-bulk-status" class="description" style="margin:0;"></p>
+                        </div>
+                    </div>
+                    <div class="tavif-tool-card">
+                        <h3>Purge Conversions</h3>
+                        <p>Delete all generated AVIF and WebP files from the uploads directory. Original images are never touched. Useful before re-converting with different quality settings.</p>
+                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                            <?php wp_nonce_field('timber_avif_tools'); ?>
+                            <input type="hidden" name="action" value="timber_avif_tools" />
+                            <input type="hidden" name="subaction" value="purge_conversions" />
+                            <input type="hidden" name="tab" value="tools" />
+                            <button type="submit" class="button" style="color:#b91c1c;" onclick="return confirm('Delete all generated AVIF and WebP files? Originals will not be touched.');">Purge all conversions</button>
+                        </form>
+                    </div>
+                    <div class="tavif-tool-card">
+                        <h3>Clear Caches</h3>
+                        <p>Flush the internal capability cache and re-detect which PHP extensions and CLI tools are available for image conversion. Useful after a server update or PHP version change.</p>
+                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                            <?php wp_nonce_field('timber_avif_tools'); ?>
+                            <input type="hidden" name="action" value="timber_avif_tools" />
+                            <input type="hidden" name="subaction" value="clear_cache" />
+                            <input type="hidden" name="tab" value="tools" />
+                            <button type="submit" class="button">Flush &amp; re-detect</button>
+                        </form>
+                    </div>
+                </div>
+
             <?php else: ?>
                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                     <?php wp_nonce_field('timber_avif_settings'); ?>
@@ -267,59 +599,102 @@ class AVIFConverter {
                     <input type="hidden" name="subaction" value="save_settings" />
                     <input type="hidden" name="tab" value="settings" />
 
-                    <h2 class="title">Generation</h2>
-                    <table class="form-table" role="presentation">
-                        <tr>
-                            <th scope="row">Generate AVIF on upload</th>
-                            <td>
-                                <select name="generate_avif_uploads">
-                                    <option value="1" <?php selected($settings['generate_avif_uploads']); ?>>Yes</option>
-                                    <option value="0" <?php selected(!$settings['generate_avif_uploads']); ?>>No</option>
-                                </select>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">Generate WebP on upload</th>
-                            <td>
-                                <select name="generate_webp_uploads">
-                                    <option value="1" <?php selected($settings['generate_webp_uploads']); ?>>Yes</option>
-                                    <option value="0" <?php selected(!$settings['generate_webp_uploads']); ?>>No</option>
-                                </select>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">Quality</th>
-                            <td>
-                                <label>AVIF
-                                    <input type="range" name="avif_quality" min="1" max="100" value="<?php echo esc_attr($settings['avif_quality']); ?>" oninput="this.nextElementSibling.innerHTML=this.value" />
-                                    <span><?php echo esc_html($settings['avif_quality']); ?></span>
-                                </label>
-                                <label style="margin-left:1rem;">WebP
-                                    <input type="range" name="webp_quality" min="1" max="100" value="<?php echo esc_attr($settings['webp_quality']); ?>" oninput="this.nextElementSibling.innerHTML=this.value" />
-                                    <span><?php echo esc_html($settings['webp_quality']); ?></span>
-                                </label>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">Size safeguards</th>
-                            <td>
-                                <label>Max dimension <input type="number" name="max_dimension" value="<?php echo esc_attr($settings['max_dimension']); ?>" /></label>
-                                <label style="margin-left:1rem;">Max file size MB <input type="number" name="max_file_size" step="1" value="<?php echo esc_attr($settings['max_file_size']); ?>" /></label>
-                                <label style="margin-left:1rem;"><input type="checkbox" name="only_if_smaller" value="1" <?php checked($settings['only_if_smaller']); ?> /> Only keep converted file if smaller</label>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">Pregenerate widths</th>
-                            <td>
-                                <label><input type="checkbox" name="pregenerate_breakpoints" value="1" <?php checked($settings['pregenerate_breakpoints']); ?> /> Generate breakpoints on upload</label><br/>
+                    <div class="tavif-section">
+                        <h3>Generation</h3>
+                        <div class="tavif-field-row">
+                            <label class="tavif-toggle">
+                                <input type="hidden" name="generate_avif_uploads" value="0" />
+                                <input type="checkbox" name="generate_avif_uploads" value="1" <?php checked($settings['generate_avif_uploads']); ?> />
+                                <span class="slider"></span>
+                                <span class="toggle-label">
+                                    Generate AVIF on upload
+                                    <?php if ($avif_method === 'none'): ?>
+                                        <span class="tavif-badge tavif-badge--warn" style="margin-left:6px;">No engine</span>
+                                    <?php endif; ?>
+                                </span>
+                            </label>
+                        </div>
+                        <div class="tavif-field-row">
+                            <label class="tavif-toggle">
+                                <input type="hidden" name="generate_webp_uploads" value="0" />
+                                <input type="checkbox" name="generate_webp_uploads" value="1" <?php checked($settings['generate_webp_uploads']); ?> />
+                                <span class="slider"></span>
+                                <span class="toggle-label">
+                                    Generate WebP on upload
+                                    <?php if ($webp_method === 'none'): ?>
+                                        <span class="tavif-badge tavif-badge--warn" style="margin-left:6px;">No engine</span>
+                                    <?php endif; ?>
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="tavif-section">
+                        <h3>Quality</h3>
+                        <div class="tavif-range-group">
+                            <label>
+                                <span class="range-label">AVIF</span>
+                                <input type="range" name="avif_quality" min="1" max="100" value="<?php echo esc_attr($settings['avif_quality']); ?>" oninput="this.closest('label').querySelector('.range-val').textContent=this.value" />
+                                <span class="range-val"><?php echo esc_html($settings['avif_quality']); ?></span>
+                            </label>
+                        </div>
+                        <div class="tavif-range-group">
+                            <label>
+                                <span class="range-label">WebP</span>
+                                <input type="range" name="webp_quality" min="1" max="100" value="<?php echo esc_attr($settings['webp_quality']); ?>" oninput="this.closest('label').querySelector('.range-val').textContent=this.value" />
+                                <span class="range-val"><?php echo esc_html($settings['webp_quality']); ?></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="tavif-section">
+                        <h3>Size Limits</h3>
+                        <div class="tavif-field-row">
+                            <label>Max dimension (px) <input type="number" name="max_dimension" value="<?php echo esc_attr($settings['max_dimension']); ?>" min="512" step="1" /></label>
+                            <label>Max file size (MB) <input type="number" name="max_file_size" value="<?php echo esc_attr($settings['max_file_size']); ?>" min="1" step="1" /></label>
+                        </div>
+                        <div class="tavif-field-row">
+                            <label class="tavif-toggle">
+                                <input type="checkbox" name="only_if_smaller" value="1" <?php checked($settings['only_if_smaller']); ?> />
+                                <span class="slider"></span>
+                                <span class="toggle-label">Only keep converted file if smaller than original</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="tavif-section">
+                        <h3>Responsive Breakpoints</h3>
+                        <div class="tavif-field-row">
+                            <label class="tavif-toggle">
+                                <input type="checkbox" name="pregenerate_breakpoints" value="1" <?php checked($settings['pregenerate_breakpoints']); ?> />
+                                <span class="slider"></span>
+                                <span class="toggle-label">Pre-generate breakpoint variants on upload</span>
+                            </label>
+                        </div>
+                        <div class="tavif-field-row" style="margin-top: 4px;">
+                            <div>
                                 <input type="text" name="breakpoint_widths" value="<?php echo esc_attr($settings['breakpoint_widths']); ?>" class="regular-text" />
-                                <p class="description">Comma-separated widths (px) used to warm responsive caches.</p>
-                            </td>
-                        </tr>
-                    </table>
+                                <p class="description">Comma-separated widths (px). Converted variants will be pre-generated at each width on upload.</p>
+                            </div>
+                        </div>
+                    </div>
+
                     <?php submit_button('Save settings'); ?>
                 </form>
             <?php endif; ?>
+
+            <?php if (!empty($_GET['converted'])): ?>
+                <div class="notice notice-success is-dismissible" style="margin: 20px 0 0;"><p>Bulk conversion complete.</p></div>
+            <?php endif; ?>
+            <?php if (!empty($_GET['cleared'])): ?>
+                <div class="notice notice-success is-dismissible" style="margin: 20px 0 0;"><p>Caches cleared &mdash; capabilities re-detected.</p></div>
+            <?php endif; ?>
+            <?php if (isset($_GET['purged'])): ?>
+                <div class="notice notice-success is-dismissible" style="margin: 20px 0 0;"><p><?php echo intval($_GET['purged']); ?> converted files deleted. Original images were not touched.</p></div>
+            <?php endif; ?>
+
+            </div>
+            <p style="text-align:right; color:#9ca3af; font-size:11px; margin:12px 0 0;">Timber AVIF v4.0.0 &mdash; <a href="https://github.com/zenotds/timber-avif" target="_blank" style="color:#9ca3af;">GitHub</a></p>
         </div>
         <?php
     }
@@ -337,8 +712,8 @@ class AVIFConverter {
 
         if ($subaction === 'save_settings') {
             check_admin_referer('timber_avif_settings');
-            self::$settings['generate_avif_uploads'] = isset($_POST['generate_avif_uploads']) ? (bool) intval($_POST['generate_avif_uploads']) : true;
-            self::$settings['generate_webp_uploads'] = isset($_POST['generate_webp_uploads']) ? (bool) intval($_POST['generate_webp_uploads']) : true;
+            self::$settings['generate_avif_uploads'] = !empty($_POST['generate_avif_uploads']) && intval($_POST['generate_avif_uploads']) === 1;
+            self::$settings['generate_webp_uploads'] = !empty($_POST['generate_webp_uploads']) && intval($_POST['generate_webp_uploads']) === 1;
             self::$settings['avif_quality'] = max(1, min(100, intval($_POST['avif_quality'] ?? self::DEFAULT_AVIF_QUALITY)));
             self::$settings['webp_quality'] = max(1, min(100, intval($_POST['webp_quality'] ?? self::DEFAULT_WEBP_QUALITY)));
             self::$settings['only_if_smaller'] = !empty($_POST['only_if_smaller']);
@@ -359,6 +734,12 @@ class AVIFConverter {
             exit;
         }
 
+        if ($subaction === 'purge_conversions') {
+            $deleted = self::purge_all_conversions();
+            wp_safe_redirect(add_query_arg(['purged' => $deleted, 'tab' => $tab], admin_url('options-general.php?page=timber-avif-settings')));
+            exit;
+        }
+
         if ($subaction === 'clear_cache') {
             self::clear_cache();
             wp_safe_redirect(add_query_arg(['cleared' => 'true', 'tab' => $tab], admin_url('options-general.php?page=timber-avif-settings')));
@@ -367,6 +748,131 @@ class AVIFConverter {
 
         wp_safe_redirect(admin_url('options-general.php?page=timber-avif-settings'));
         exit;
+    }
+
+    /**
+     * AJAX handler: process one batch of bulk conversions
+     */
+    public static function handle_ajax_bulk_batch() {
+        check_ajax_referer('timber_avif_bulk_batch', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions', 403);
+        }
+
+        $offset = max(0, intval($_POST['offset'] ?? 0));
+        $batch_size = max(1, min(20, intval($_POST['batch_size'] ?? 5)));
+
+        $attachments = get_posts([
+            'post_type'      => 'attachment',
+            'post_mime_type' => ['image/jpeg', 'image/png', 'image/gif'],
+            'posts_per_page' => -1,
+            'post_status'    => 'any',
+            'fields'         => 'ids',
+        ]);
+
+        $total = count($attachments);
+        $slice = array_slice($attachments, $offset, $batch_size);
+        $processed = 0;
+
+        foreach ($slice as $attachment_id) {
+            self::convert_single_attachment($attachment_id);
+            $processed++;
+        }
+
+        $new_offset = $offset + $processed;
+        $done = $new_offset >= $total;
+
+        if ($done) {
+            delete_transient(self::CACHE_PREFIX . 'statistics');
+        }
+
+        wp_send_json_success([
+            'processed' => $new_offset,
+            'total'     => $total,
+            'done'      => $done,
+        ]);
+    }
+
+    /**
+     * Enqueue inline JS for AJAX bulk convert (only on our settings page)
+     */
+    public static function enqueue_admin_scripts($hook) {
+        if ($hook !== 'settings_page_timber-avif-settings') {
+            return;
+        }
+
+        $nonce = wp_create_nonce('timber_avif_bulk_batch');
+        $ajax_url = admin_url('admin-ajax.php');
+
+        wp_add_inline_script('jquery-core', "
+            jQuery(function($){
+                var running = false, cancelled = false;
+                var btn = $('#tavif-bulk-start');
+                var wrap = $('#tavif-bulk-progress');
+                var bar = $('#tavif-bulk-bar');
+                var count = $('#tavif-bulk-count');
+                var status = $('#tavif-bulk-status');
+
+                if (!btn.length) return;
+
+                btn.on('click', function(){
+                    if (running) {
+                        cancelled = true;
+                        btn.prop('disabled', true).text('Stopping\u2026');
+                        return;
+                    }
+
+                    running = true;
+                    cancelled = false;
+                    btn.text('Cancel').removeClass('button-primary').addClass('button-secondary');
+                    wrap.show();
+                    bar.css('width', '0%');
+                    count.text('0 / \u2026');
+                    status.text('Starting\u2026');
+
+                    processBatch(0);
+                });
+
+                function processBatch(offset) {
+                    if (cancelled) {
+                        finish('Cancelled at ' + offset + ' images.');
+                        return;
+                    }
+                    $.post('" . esc_js($ajax_url) . "', {
+                        action: 'timber_avif_bulk_batch',
+                        nonce: '" . esc_js($nonce) . "',
+                        offset: offset,
+                        batch_size: 5
+                    }, function(resp) {
+                        if (!resp.success) {
+                            finish('Error: ' + (resp.data || 'unknown'));
+                            return;
+                        }
+                        var d = resp.data;
+                        var pct = d.total > 0 ? Math.round(d.processed / d.total * 100) : 0;
+                        bar.css('width', pct + '%');
+                        count.text(d.processed + ' / ' + d.total);
+                        status.text('Processing\u2026 ' + pct + '%');
+
+                        if (d.done) {
+                            finish('Done! ' + d.processed + ' images processed.');
+                        } else {
+                            processBatch(d.processed);
+                        }
+                    }).fail(function() {
+                        finish('Request failed. Please try again.');
+                    });
+                }
+
+                function finish(msg) {
+                    running = false;
+                    cancelled = false;
+                    btn.prop('disabled', false).text('Convert all media').removeClass('button-secondary').addClass('button-primary');
+                    status.text(msg);
+                    bar.css('width', '100%');
+                }
+            });
+        ");
     }
 
     /**
@@ -650,13 +1156,35 @@ class AVIFConverter {
             return false;
         }
 
-        @exec('magick --version 2>&1', $output, $return_var);
-        if ($return_var === 0) {
-            return true;
+        // Actually test a 1x1 pixel conversion to confirm format support
+        $tmp_src = tempnam(sys_get_temp_dir(), 'tavif_test_') . '.png';
+        $tmp_dst = tempnam(sys_get_temp_dir(), 'tavif_test_') . '.' . $format;
+
+        // Create a tiny PNG test image
+        $img = @imagecreatetruecolor(1, 1);
+        if (!$img) {
+            return false;
+        }
+        @imagepng($img, $tmp_src);
+        imagedestroy($img);
+
+        $success = false;
+        $src_arg = escapeshellarg($tmp_src);
+        $dst_arg = escapeshellarg($tmp_dst);
+
+        @exec("magick {$src_arg} {$dst_arg} 2>&1", $output, $return_var);
+        if ($return_var !== 0) {
+            @exec("convert {$src_arg} {$dst_arg} 2>&1", $output, $return_var);
         }
 
-        @exec('convert --version 2>&1', $output, $return_var);
-        return $return_var === 0;
+        if ($return_var === 0 && file_exists($tmp_dst) && filesize($tmp_dst) > 0) {
+            $success = true;
+        }
+
+        @unlink($tmp_src);
+        @unlink($tmp_dst);
+
+        return $success;
     }
 
     /**
@@ -978,29 +1506,151 @@ class AVIFConverter {
     }
 
     /**
-     * Bulk convert helper
+     * Purge all generated AVIF and WebP files from uploads
      */
-    public static function bulk_convert_media() {
-        $query_args = [
+    public static function purge_all_conversions() {
+        $upload_dir = wp_upload_dir();
+        $base_dir = $upload_dir['basedir'];
+        $deleted = 0;
+
+        // Collect original attachment paths so we never delete uploaded originals
+        $original_paths = [];
+        $originals = get_posts([
             'post_type'      => 'attachment',
-            'post_mime_type' => ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'],
+            'post_mime_type' => ['image/avif', 'image/webp'],
             'posts_per_page' => -1,
             'post_status'    => 'any',
             'fields'         => 'ids',
-        ];
-
-        $attachments = get_posts($query_args);
-        foreach ($attachments as $attachment_id) {
-            $file_path = get_attached_file($attachment_id);
-            if (!$file_path || !file_exists($file_path)) {
-                continue;
-            }
-            $url = wp_get_attachment_url($attachment_id);
-            self::convert_to_avif($url, self::get_setting('avif_quality', self::DEFAULT_AVIF_QUALITY));
-            if (self::get_setting('generate_webp_uploads')) {
-                self::convert_to_webp($url, self::get_setting('webp_quality', self::DEFAULT_WEBP_QUALITY));
+        ]);
+        foreach ($originals as $id) {
+            $path = get_attached_file($id);
+            if ($path) {
+                $original_paths[realpath($path)] = true;
+                // Also protect WordPress-generated thumbnails of these originals
+                $meta = wp_get_attachment_metadata($id);
+                if (!empty($meta['sizes']) && is_array($meta['sizes'])) {
+                    $dir = dirname($path);
+                    foreach ($meta['sizes'] as $size) {
+                        if (!empty($size['file'])) {
+                            $thumb = realpath($dir . '/' . $size['file']);
+                            if ($thumb) {
+                                $original_paths[$thumb] = true;
+                            }
+                        }
+                    }
+                }
             }
         }
+
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($base_dir, \RecursiveDirectoryIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::LEAVES_ONLY
+        );
+
+        foreach ($iterator as $file) {
+            if (!$file->isFile()) {
+                continue;
+            }
+            $ext = strtolower($file->getExtension());
+            if ($ext === 'avif' || $ext === 'webp') {
+                $real = realpath($file->getPathname());
+                // Skip files that are original uploads
+                if ($real && isset($original_paths[$real])) {
+                    continue;
+                }
+                if (@unlink($file->getPathname())) {
+                    $deleted++;
+                }
+            }
+        }
+
+        // Clear all _timber_variants post meta
+        global $wpdb;
+        $wpdb->delete($wpdb->postmeta, ['meta_key' => '_timber_variants']);
+
+        // Clear statistics cache
+        delete_transient(self::CACHE_PREFIX . 'statistics');
+
+        return $deleted;
+    }
+
+    /**
+     * Convert a single attachment: original + WP sizes + optional breakpoints
+     */
+    private static function convert_single_attachment($attachment_id) {
+        $file_path = get_attached_file($attachment_id);
+        if (!$file_path || !file_exists($file_path)) {
+            return;
+        }
+
+        $url = wp_get_attachment_url($attachment_id);
+        if (!$url) {
+            return;
+        }
+
+        $do_avif = self::get_setting('generate_avif_uploads');
+        $do_webp = self::get_setting('generate_webp_uploads');
+
+        // Original
+        if ($do_avif) {
+            self::convert_to_avif($url, self::get_setting('avif_quality', self::DEFAULT_AVIF_QUALITY));
+        }
+        if ($do_webp) {
+            self::convert_to_webp($url, self::get_setting('webp_quality', self::DEFAULT_WEBP_QUALITY));
+        }
+
+        // WP-registered sizes (thumbnails, medium, large, etc.)
+        $metadata = wp_get_attachment_metadata($attachment_id);
+        if (!empty($metadata['sizes']) && is_array($metadata['sizes'])) {
+            $base_dir_url = trailingslashit(dirname($url));
+            foreach ($metadata['sizes'] as $size) {
+                if (empty($size['file'])) {
+                    continue;
+                }
+                $size_url = $base_dir_url . $size['file'];
+                if ($do_avif) {
+                    self::convert_to_avif($size_url, self::get_setting('avif_quality', self::DEFAULT_AVIF_QUALITY));
+                }
+                if ($do_webp) {
+                    self::convert_to_webp($size_url, self::get_setting('webp_quality', self::DEFAULT_WEBP_QUALITY));
+                }
+            }
+        }
+
+        // Breakpoints
+        if (self::get_setting('pregenerate_breakpoints')) {
+            $widths = array_filter(array_map('intval', explode(',', self::get_setting('breakpoint_widths'))));
+            foreach ($widths as $width) {
+                $resized = self::maybe_resize($url, $width, null);
+                if ($resized) {
+                    if ($do_avif) {
+                        self::convert_to_avif($resized, self::get_setting('avif_quality', self::DEFAULT_AVIF_QUALITY));
+                    }
+                    if ($do_webp) {
+                        self::convert_to_webp($resized, self::get_setting('webp_quality', self::DEFAULT_WEBP_QUALITY));
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Bulk convert helper
+     */
+    public static function bulk_convert_media() {
+        $attachments = get_posts([
+            'post_type'      => 'attachment',
+            'post_mime_type' => ['image/jpeg', 'image/png', 'image/gif'],
+            'posts_per_page' => -1,
+            'post_status'    => 'any',
+            'fields'         => 'ids',
+        ]);
+
+        foreach ($attachments as $attachment_id) {
+            self::convert_single_attachment($attachment_id);
+        }
+
+        delete_transient(self::CACHE_PREFIX . 'statistics');
     }
 
     /**
@@ -1019,6 +1669,76 @@ class AVIFConverter {
      */
     private static function get_setting($key, $default = null) {
         return self::$settings[$key] ?? $default;
+    }
+
+    /**
+     * Media library: add "Optimized" column
+     */
+    public static function add_media_column($columns) {
+        $new = [];
+        foreach ($columns as $key => $label) {
+            $new[$key] = $label;
+            if ($key === 'date') {
+                $new['tavif_optimized'] = 'Optimized';
+            }
+        }
+        return $new;
+    }
+
+    /**
+     * Media library: render badges in "Optimized" column
+     */
+    public static function render_media_column($column, $post_id) {
+        if ($column !== 'tavif_optimized') {
+            return;
+        }
+
+        $mime = get_post_mime_type($post_id);
+        if (!$mime || !str_starts_with($mime, 'image/')) {
+            echo '&mdash;';
+            return;
+        }
+
+        $file = get_attached_file($post_id);
+        if (!$file || !file_exists($file)) {
+            echo '&mdash;';
+            return;
+        }
+
+        $avif_path = preg_replace('/\.(jpe?g|png|gif)$/i', '.avif', $file);
+        $webp_path = preg_replace('/\.(jpe?g|png|gif)$/i', '.webp', $file);
+        $has_avif = file_exists($avif_path) && $avif_path !== $file;
+        $has_webp = file_exists($webp_path) && $webp_path !== $file;
+
+        if (!$has_avif && !$has_webp) {
+            echo '<span style="color:#9ca3af;">&mdash;</span>';
+            return;
+        }
+
+        if ($has_avif) {
+            echo '<span class="tavif-col-badge tavif-col-badge--avif">AVIF</span> ';
+        }
+        if ($has_webp) {
+            echo '<span class="tavif-col-badge tavif-col-badge--webp">WebP</span>';
+        }
+    }
+
+    /**
+     * Inline CSS for media library column (only on upload.php)
+     */
+    public static function media_column_css() {
+        $screen = get_current_screen();
+        if (!$screen || $screen->id !== 'upload') {
+            return;
+        }
+        ?>
+        <style>
+            .fixed .column-tavif_optimized { width: 90px; text-align: center; }
+            .tavif-col-badge { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 11px; font-weight: 600; line-height: 1.3; }
+            .tavif-col-badge--avif { background: #d1fae5; color: #065f46; }
+            .tavif-col-badge--webp { background: #dbeafe; color: #1e40af; }
+        </style>
+        <?php
     }
 
     /**
@@ -1045,7 +1765,7 @@ class AVIFConverter {
 
             $query_args = [
                 'post_type'      => 'attachment',
-                'post_mime_type' => ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'],
+                'post_mime_type' => ['image/jpeg', 'image/png', 'image/gif'],
                 'posts_per_page' => -1,
                 'post_status'    => 'any',
                 'fields'         => 'ids',
@@ -1060,11 +1780,7 @@ class AVIFConverter {
 
             $progress = \WP_CLI\Utils\make_progress_bar("Converting {$total} images", $total);
             foreach ($attachments as $attachment_id) {
-                $url = wp_get_attachment_url($attachment_id);
-                self::convert_to_avif($url, $quality, true);
-                if ($enable_webp) {
-                    self::convert_to_webp($url, $webp_quality, true);
-                }
+                self::convert_single_attachment($attachment_id);
                 $progress->tick();
             }
             $progress->finish();

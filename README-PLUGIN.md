@@ -1,12 +1,13 @@
-# Timber AVIF v4.0 – Plugin
+# Timber AVIF – Plugin
 
-Slim plugin that bundles the v3 converter and macro so you can drop AVIF/WebP support into any Timber project without touching the theme.
+Slim plugin that bundles the converter and macro so you can drop AVIF/WebP support into any Timber project without touching the theme.
 
 ## What it Does
-- Uses the same `AVIFConverter` as the theme version (AVIF + WebP, upload-time generation, admin tools)
+- Uses the same `AVIFConverter` class as the theme version
 - Autoloads Twig helpers: `|toavif`, `|avif_src`, `|webp_src`, `image.avif`, `image.webp`
 - Registers the macro path (`timber-avif/macros/picture.twig`)
-- Adds the Tools → Timber AVIF screen + WP-CLI commands
+- Adds Settings > Timber AVIF with Settings, Tools, and Statistics tabs
+- WP-CLI commands under `timber-avif`
 
 ## Install
 1. Copy `/timber-avif/` into `/wp-content/plugins/`.
@@ -25,12 +26,14 @@ All Twig and PHP APIs are identical to the theme version:
 {{ img.image(hero, { atf: true }) }}
 ```
 
-Admin lives under Settings → Timber AVIF (Settings/Tools tabs). CLI lives under `wp timber-avif`.
+Admin lives under Settings > Timber AVIF. CLI lives under `wp timber-avif`.
 
 ## Settings
-Same options as v3 (shared via the `timber_avif_settings` option):
-- Auto-convert uploads; optional WebP
+Same options as the theme drop-in (shared via the `timber_avif_settings` option):
+- Auto-convert uploads (AVIF + WebP toggles)
 - Quality sliders
 - Only if smaller; max dimension/file size
 - Breakpoint warming widths
-- Bulk convert + cache clear
+- Bulk convert with AJAX progress bar
+- Purge conversions, clear caches
+- Statistics with progress bars and space savings
