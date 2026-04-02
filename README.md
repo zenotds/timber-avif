@@ -53,8 +53,8 @@ The `image` macro generates a `<picture>` element with optimized sources, automa
 
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `sizes` | `hash` | `null` | Mapping of breakpoints to `[width, height]` arrays. See **Size Cascading** below. |
-| `breakpoints` | `hash` | *(Tailwind defaults)* | Custom media query values (`xs` to `2xl`). |
+| `sizes` | `array` | `null` | Mapping of breakpoints to `[width, height]` arrays. See **Size Cascading** below. |
+| `breakpoints` | `array` | *(Tailwind defaults)* | Custom media query values (`xs` to `2xl`). |
 | `pictureClass` | `string` | `''` | CSS class added to the `<picture>` wrapper. |
 | `imgClass` | `string` | `object-contain...` | CSS class added to the `<img>` tag. |
 | `atf` | `bool` | `false` | Above-The-Fold mode. If `true`, adds `fetchpriority="high"` and removes `loading="lazy"`. |
