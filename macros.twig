@@ -1,4 +1,4 @@
-{# Reactive image #}
+{# Reactive Image #}
 {% macro image(image, options = {}) %}
     {% set defaults = {
         sizes: null,
@@ -11,7 +11,7 @@
             '2xl': '96rem'
         },
         pictureClass: '',
-        imgClass: 'object-cover object-center h-full w-full mx-auto',
+        imgClass: 'object-contain object-center mx-auto',
         atf: false,
         avif: true,
         webp: true
@@ -19,25 +19,36 @@
 
     {% set config = defaults|merge(options) %}
 
-    {# Simple render when no responsive sizes are provided #}
+    {# ── Simple render (no responsive sizes) ── #}
     {% if config.sizes is null %}
-        <picture class="picture {{ config.pictureClass }}">
-            {% set avifUrl = config.avif ? (image|avif_src) : null %}
-            {% set webpUrl = config.webp ? (image|webp_src) : null %}
-            {% if config.avif %}
-                <source srcset="{{ avifUrl ?: (image|toavif) }}" type="image/avif"/>
-            {% endif %}
-            {% if config.webp %}
-                <source srcset="{{ webpUrl ?: (image|towebp) }}" type="image/webp"/>
-            {% endif %}
-            <img {% if config.imgClass %} class="{{ config.imgClass }}" {% endif %} src="{{ image.url }}" alt="{{ image.alt ?: image.title }}" {% if config.atf %} fetchpriority="high" {% else %} loading="lazy" decoding="async" {% endif %} {% if image.width %} width="{{ image.width }}" {% endif %} {% if image.height %} height="{{ image.height }}" {% endif %}/>
-        </picture>
-    {% else %}
+        {% set imgSrc = image.src is defined ? image.src : image %}
+        {% set avifUrl = config.avif ? (image|toavif) : null %}
+        {% set webpUrl = config.webp ? (image|webp_src) : null %}
+        {% set hasAvif = avifUrl and avifUrl != imgSrc %}
+        {% set hasWebp = webpUrl and webpUrl != imgSrc %}
 
+        <picture class="picture {{ config.pictureClass }}">
+            {# Only emit the best optimized format: AVIF > WebP #}
+            {% if hasAvif %}
+                <source srcset="{{ avifUrl }}" type="image/avif"/>
+            {% elseif hasWebp %}
+                <source srcset="{{ webpUrl }}" type="image/webp"/>
+            {% endif %}
+            <img
+                {% if config.imgClass %} class="{{ config.imgClass }}"{% endif %}
+                src="{{ imgSrc }}"
+                alt="{{ image.alt is defined ? image.alt : (image.title is defined ? image.title : '') }}"
+                {% if config.atf %} fetchpriority="high"{% else %} loading="lazy" decoding="async"{% endif %}
+                {% if image.width is defined and image.width %} width="{{ image.width }}"{% endif %}
+                {% if image.height is defined and image.height %} height="{{ image.height }}"{% endif %}
+            />
+        </picture>
+
+    {# ── Responsive render ── #}
+    {% else %}
         {% set maxResize = 2560 %}
         {% set imageWidth = image.width %}
         {% set imageHeight = image.height %}
-
         {% set maxDimension = imageWidth > imageHeight ? imageWidth : imageHeight %}
         {% set scaleFactor = maxDimension > maxResize ? (maxResize / maxDimension) : 1 %}
 
@@ -52,49 +63,33 @@
             {% set normalizedSizes = normalizedSizes|merge({(key): lastSize}) %}
         {% endfor %}
 
-        {# Source configs: largest to smallest, min-width only (mobile-first) #}
+        {# Source configs: largest to smallest (mobile-first) #}
         {% set sourceConfigs = [
-            {
-                'key': '2xl',
-                'media': '(min-width: ' ~ config.breakpoints['2xl'] ~ ')'
-            },
-            {
-                'key': 'xl',
-                'media': '(min-width: ' ~ config.breakpoints.xl ~ ')'
-            },
-            {
-                'key': 'lg',
-                'media': '(min-width: ' ~ config.breakpoints.lg ~ ')'
-            },
-            {
-                'key': 'md',
-                'media': '(min-width: ' ~ config.breakpoints.md ~ ')'
-            },
-            {
-                'key': 'sm',
-                'media': '(min-width: ' ~ config.breakpoints.sm ~ ')'
-            },
-            {
-                'key': 'xs',
-                'media': null
-            }
+            { 'key': '2xl', 'media': '(min-width: ' ~ config.breakpoints['2xl'] ~ ')' },
+            { 'key': 'xl',  'media': '(min-width: ' ~ config.breakpoints.xl ~ ')' },
+            { 'key': 'lg',  'media': '(min-width: ' ~ config.breakpoints.lg ~ ')' },
+            { 'key': 'md',  'media': '(min-width: ' ~ config.breakpoints.md ~ ')' },
+            { 'key': 'sm',  'media': '(min-width: ' ~ config.breakpoints.sm ~ ')' },
+            { 'key': 'xs',  'media': null }
         ] %}
 
+        {# Pre-compute all source data in one pass #}
         {% set pictureSources = [] %}
-
         {% for source in sourceConfigs %}
             {% set dims = normalizedSizes[source.key] %}
             {% set targetWidth = (dims[0] is defined ? dims[0] : imageWidth) * scaleFactor %}
             {% set targetHeight = dims[1] is defined ? dims[1] * scaleFactor : null %}
 
-            {# Cap 2x at original dimensions to avoid useless upscaling #}
+            {# Cap 2x at original dimensions #}
             {% set w2x = min(targetWidth * 2, imageWidth) %}
             {% set h2x = targetHeight ? min(targetHeight * 2, imageHeight) : null %}
             {% set has2x = w2x > targetWidth %}
 
+            {# Timber resize (cached natively) #}
             {% set src1x = image|resize(targetWidth, targetHeight) %}
             {% set src2x = has2x ? image|resize(w2x, h2x) : null %}
 
+            {# AVIF/WebP lookups — just file existence checks, no conversion #}
             {% set avif1x = config.avif ? (image|avif_src(targetWidth, targetHeight)) : null %}
             {% set avif2x = (config.avif and has2x) ? (image|avif_src(w2x, h2x)) : null %}
             {% set webp1x = config.webp ? (image|webp_src(targetWidth, targetHeight)) : null %}
@@ -116,33 +111,54 @@
         {% set baseWidth = baseSize[0] %}
         {% set baseHeight = baseSize[1] is defined ? baseSize[1] : null %}
 
-        {# Determine best available format (server-side) #}
-        {% set baseAvif = config.avif ? (image|avif_src) : null %}
-        {% set baseWebp = config.webp ? (image|webp_src) : null %}
-        {% set hasAvif = baseAvif and (baseAvif ends with '.avif') %}
-        {% set hasWebp = baseWebp and (baseWebp ends with '.webp') %}
+        {# Determine best available optimized format: AVIF > WebP > none #}
+        {% set firstSrc = pictureSources[0] %}
+        {% set hasAvif = firstSrc.avif1x and firstSrc.avif1x != firstSrc.src1x %}
+        {% set hasWebp = firstSrc.webp1x and firstSrc.webp1x != firstSrc.src1x %}
         {% set useAvif = hasAvif %}
-        {% set useWebp = (not useAvif) and hasWebp %}
+        {% set useWebp = (not hasAvif) and hasWebp %}
 
         <picture class="picture {{ config.pictureClass }}">
-            {# Preferred format (AVIF > WebP). We emit only one optimized format set #}
+            {# Optimized format sources (only one: AVIF or WebP, not both) #}
             {% if useAvif %}
                 {% for source in pictureSources %}
-                    <source {% if source.media %} media="{{ source.media }}" {% endif %} srcset="{{ (source.avif1x ?: source.src1x|toavif) }}{% if source.has2x %} 1x, {{ (source.avif2x ?: source.src2x|toavif) }} 2x{% endif %}" type="image/avif"/>
+                    {% if source.avif1x and source.avif1x != source.src1x %}
+                        <source
+                            {% if source.media %} media="{{ source.media }}"{% endif %}
+                            srcset="{{ source.avif1x }}{% if source.has2x and source.avif2x and source.avif2x != source.src2x %} 1x, {{ source.avif2x }} 2x{% endif %}"
+                            type="image/avif"
+                        />
+                    {% endif %}
                 {% endfor %}
             {% elseif useWebp %}
                 {% for source in pictureSources %}
-                    <source {% if source.media %} media="{{ source.media }}" {% endif %} srcset="{{ (source.webp1x ?: source.src1x|towebp) }}{% if source.has2x %} 1x, {{ (source.webp2x ?: source.src2x|towebp) }} 2x{% endif %}" type="image/webp"/>
+                    {% if source.webp1x and source.webp1x != source.src1x %}
+                        <source
+                            {% if source.media %} media="{{ source.media }}"{% endif %}
+                            srcset="{{ source.webp1x }}{% if source.has2x and source.webp2x and source.webp2x != source.src2x %} 1x, {{ source.webp2x }} 2x{% endif %}"
+                            type="image/webp"
+                        />
+                    {% endif %}
                 {% endfor %}
             {% endif %}
 
-            {# Original format sources - fallback #}
+            {# Original format fallback #}
             {% for source in pictureSources %}
-                <source {% if source.media %} media="{{ source.media }}" {% endif %} srcset="{{ source.src1x }}{% if source.has2x %} 1x, {{ source.src2x }} 2x{% endif %}"/>
+                <source
+                    {% if source.media %} media="{{ source.media }}"{% endif %}
+                    srcset="{{ source.src1x }}{% if source.has2x %} 1x, {{ source.src2x }} 2x{% endif %}"
+                />
             {% endfor %}
 
-            {# Fallback img tag #}
-            <img {% if config.imgClass %} class="{{ config.imgClass }}" {% endif %} src="{{ image|resize(baseWidth, baseHeight) }}" alt="{{ image.alt ?: image.title }}" {% if config.atf %} fetchpriority="high" {% else %} loading="lazy" decoding="async" {% endif %} width="{{ baseWidth }}" {% if baseHeight %} height="{{ baseHeight }}" {% endif %}/>
+            {# Fallback img #}
+            <img
+                {% if config.imgClass %} class="{{ config.imgClass }}"{% endif %}
+                src="{{ image|resize(baseWidth, baseHeight) }}"
+                alt="{{ image.alt is defined ? image.alt : (image.title is defined ? image.title : '') }}"
+                {% if config.atf %} fetchpriority="high"{% else %} loading="lazy" decoding="async"{% endif %}
+                width="{{ baseWidth }}"
+                {% if baseHeight %} height="{{ baseHeight }}"{% endif %}
+            />
         </picture>
     {% endif %}
 {% endmacro %}

@@ -1,58 +1,95 @@
-# Timber AVIF
+# Timber AVIF (v5.3.0)
 
-Modern AVIF/WebP support for Timber projects. Choose the drop-in file or the lightweight plugin; both share the same converter (v4.0), helpers, and macro.
-
-- **Theme drop-in:** copy `avif.php` + `macros.twig` into your theme. [Docs](README-THEME.md)
-- **Plugin:** activate `/timber-avif/` to load the same features without touching the theme. [Docs](README-PLUGIN.md)
+Performance-first image optimization for Timber 2.x. This is a lightweight **theme drop-in** that adds AVIF/WebP support, background conversion, and a responsive Twig macro.
 
 ## Features
-- AVIF + WebP generation with GD/Imagick/CLI fallbacks
-- Upload-time conversion (original + registered sizes) with optional breakpoint warming
-- Twig helpers: `|toavif`, `|avif_src`, `|webp_src`, `image.avif`, `image.webp`
-- Responsive `image` macro with Tailwind-style breakpoints, mobile-first media queries, and 2x capping
-- Admin page (Settings > Timber AVIF) with three tabs: Settings, Tools, Statistics
-- AJAX-powered bulk conversion with progress bar
-- Media library "Optimized" column showing AVIF/WebP badges
-- WP-CLI: `timber-avif detect`, `timber-avif bulk`, `timber-avif clear-cache`
+- **AVIF + WebP support** with tiered engines (GD > Imagick > CLI).
+- **Hybrid Conversion:** Fast inline conversion (up to 10 per request) + Background queue (shutdown & WP-Cron).
+- **Failure Awareness:** Remembers failed conversions for 24h to avoid wasteful retries.
+- **Timber Integration:** Leverages native `|resize` and `|towebp`.
+- **Twig Helpers:** `|toavif`, `|avif_src`, `|webp_src`, `|best_src`, `image.avif`, `image.webp`, `image.best`.
+- **Responsive Macro:** Mobile-first `(min-width)`, 2x capping, and accessible alt/title fallbacks.
+- **Admin UI:** Settings, Statistics, Tools, and detailed **Logs** (Settings > Timber AVIF).
+- **WP-CLI:** `timber-avif detect`, `timber-avif bulk`, `timber-avif queue`, `timber-avif clear-cache`.
 
-## Quick Start (theme version)
-```php
-// functions.php
-require_once get_template_directory() . '/inc/avif.php';
-```
+## Installation
+
+1. Copy `avif.php` into your theme (e.g., `inc/avif.php`).
+2. Require it in your `functions.php`:
+   ```php
+   require_once get_template_directory() . '/inc/avif.php';
+   ```
+3. Copy `macros.twig` into your Twig templates directory.
+
+## Twig Usage
+
+### Properties & Filters
 ```twig
-{# Twig #}
-{{ image|avif_src(1200) }}
-{% import 'macros.twig' as img %}
-{{ img.image(post.thumbnail, { sizes: { 'lg': [1600, 900] } }) }}
+{{ image.avif }}         {# AVIF URL or original #}
+{{ image.webp }}         {# WebP URL or original #}
+{{ image.best }}         {# Best available: AVIF > WebP > original #}
+
+{{ image|toavif }}       {# Lookup/Convert to AVIF #}
+{{ image|avif_src(800) }} {# Resize to 800px + Convert to AVIF #}
 ```
 
-Open **Settings > Timber AVIF** to configure.
+### Responsive Macro (`image`)
+The `image` macro generates a `<picture>` element with optimized sources, automatic 2x (retina) support, and intelligent size cascading.
+
+```twig
+{% import "macros.twig" as macros %}
+{{ macros.image(post.thumbnail, {
+    sizes: {
+        'xs': [400],
+        'md': [800, 600],
+        'xl': [1200]
+    },
+    imgClass: 'w-full h-auto',
+    atf: true
+}) }}
+```
+
+#### Parameters
+
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `sizes` | `hash` | `null` | Mapping of breakpoints to `[width, height]` arrays. See **Size Cascading** below. |
+| `breakpoints` | `hash` | *(Tailwind defaults)* | Custom media query values (`xs` to `2xl`). |
+| `pictureClass` | `string` | `''` | CSS class added to the `<picture>` wrapper. |
+| `imgClass` | `string` | `object-contain...` | CSS class added to the `<img>` tag. |
+| `atf` | `bool` | `false` | Above-The-Fold mode. If `true`, adds `fetchpriority="high"` and removes `loading="lazy"`. |
+| `avif` | `bool` | `true` | Enable/disable AVIF generation/lookup for this instance. |
+| `webp` | `bool` | `true` | Enable/disable WebP generation/lookup for this instance. |
+
+#### Size Cascading
+The `sizes` parameter uses a "carry-forward" logic. If you only define `xs` and `lg`, the `lg` dimensions will be used for `lg`, `xl`, and `2xl` automatically.
+- `[400]`: Sets width to 400px, height is proportional.
+- `[400, 300]`: Sets width to 400px and crops/resizes height to 300px.
+
+#### 2x (Retina) Support
+The macro automatically generates `1x` and `2x` descriptors for every breakpoint. To prevent quality loss, the `2x` variant is **capped** at the original image's dimensions—it will never upscale a small source image.
+
+## Admin & Tools
+Visit **Settings > Timber AVIF** to:
+- Configure quality and conversion limits.
+- View **Statistics** (space savings and progress).
+- Run **Bulk Conversion** via AJAX.
+- Process the **Background Queue** manually.
+- Inspect **Logs** for skipped or failed conversions.
+
+## WP-CLI
+```bash
+wp timber-avif detect     # Show available conversion engines
+wp timber-avif bulk       # Process all Media Library images
+wp timber-avif queue      # Show/Process background queue
+wp timber-avif clear-cache # Flush capability caches
+```
 
 ## Requirements
-- WordPress 5.0+
-- PHP 8.1+
+- PHP 8.3+
+- WordPress 6.0+
 - Timber 2.x
-- GD with AVIF/WebP, Imagick, or ImageMagick CLI
+- GD (with AVIF/WebP), Imagick, or ImageMagick CLI
 
-## Migration
-Coming from an earlier version? See [MIGRATION.md](MIGRATION.md).
-
-## Changelog
-
-### v4.0.0
-- Unified versioning across theme drop-in and plugin (both are now v4.0)
-- **Admin:** Statistics tab with conversion progress bars and space savings
-- **Admin:** AJAX-powered bulk convert with cancel support and progress bar
-- **Admin:** Media library "Optimized" column with AVIF/WebP badges
-- **Admin:** Redesigned UI with status bar, tool cards, and stat cards
-- **Macro:** Fixed media query overlap — mobile-first `(min-width)` only, ordered largest to smallest
-- **Macro:** 2x srcset capped at original image dimensions (avoids useless upscaling)
-- **Macro:** Uses `image.alt` with `image.title` fallback (proper accessibility)
-- **Macro:** Simplified `normalizedSizes` cascade (loop instead of nested ternary)
-- **Macro:** Removed unused `ximage` macro
-
-### v3.0.0
-- Initial release with AVIF + WebP conversion, Twig helpers, admin tools, WP-CLI
-- Upload-time generation with optional breakpoint warming
-- Responsive macro with pre-generated variant reuse
+## License
+MIT
