@@ -2,7 +2,7 @@
 /**
  * Timber AVIF Converter
  *
- * @version 5.3.0
+ * @version 5.3.1
  * @author Francesco Zeno Selva
  * @link https://github.com/zenotds/timber-avif
  *
@@ -58,7 +58,7 @@ if (class_exists('Timber\\Image') && !class_exists('AVIFImage')) {
 }
 
 class TimberAVIF {
-    const VERSION     = '5.3.0';
+    const VERSION     = '5.3.1';
     const OPTION_KEY  = 'timber_avif_settings';
     const QUEUE_KEY   = 'timber_avif_queue';
     const LOG_KEY     = 'timber_avif_log';
@@ -889,6 +889,25 @@ class TimberAVIF {
         ?>
         <style>
             .tavif-wrap{max-width:860px}.tavif-header{display:flex;align-items:center;gap:12px;margin-bottom:4px}.tavif-header h1{margin:0;padding:0;line-height:1.2}.tavif-version{font-size:11px;color:#646970;background:#f0f0f1;padding:2px 8px;border-radius:10px;font-weight:400}.tavif-wrap .nav-tab-wrapper{margin-bottom:0;border-bottom:1px solid #c3c4c7}.tavif-card{background:#fff;border:1px solid #c3c4c7;border-top:0;padding:24px 28px;margin-bottom:20px}.tavif-status{display:grid;gap:12px;margin:16px 0 0}.tavif-status--3col{grid-template-columns:repeat(3,1fr)}.tavif-status+.tavif-status{margin-top:12px}.tavif-status:last-of-type{margin-bottom:20px}.tavif-status-item{background:#fff;border:1px solid #dcdcde;border-radius:6px;padding:16px 18px}.tavif-status-item .label{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#646970;margin-bottom:6px}.tavif-status-item .value{font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}.tavif-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600;line-height:1}.tavif-badge--ok{background:#d1fae5;color:#065f46}.tavif-badge--warn{background:#fef3c7;color:#92400e}.tavif-badge--off{background:#f3f4f6;color:#6b7280}.tavif-dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0}.tavif-dot--ok{background:#10b981}.tavif-dot--warn{background:#f59e0b}.tavif-dot--off{background:#9ca3af}.tavif-toggle{position:relative;display:inline-flex;align-items:center;gap:10px;cursor:pointer;user-select:none}.tavif-toggle input[type="checkbox"]{position:absolute;opacity:0;width:0;height:0}.tavif-toggle .slider{width:40px;height:22px;background:#d1d5db;border-radius:11px;position:relative;transition:background .2s;flex-shrink:0}.tavif-toggle .slider::after{content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;background:#fff;border-radius:50%;transition:transform .2s;box-shadow:0 1px 2px rgba(0,0,0,.15)}.tavif-toggle input:checked+.slider{background:#2271b1}.tavif-toggle input:checked+.slider::after{transform:translateX(18px)}.tavif-toggle .toggle-label{font-size:13px}.tavif-range-group{margin-bottom:16px}.tavif-range-group label{display:flex;align-items:center;gap:12px;font-weight:500;font-size:13px}.tavif-range-group input[type="range"]{flex:1;max-width:280px;accent-color:#2271b1;height:6px}.tavif-range-group .range-val{display:inline-block;min-width:36px;text-align:center;font-weight:600;font-size:13px;background:#f0f0f1;padding:3px 10px;border-radius:4px;font-variant-numeric:tabular-nums}.tavif-range-group .range-label{min-width:42px}.tavif-field-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:12px}.tavif-field-row label{display:flex;align-items:center;gap:6px;font-size:13px}.tavif-field-row input[type="number"]{width:90px}.tavif-field-row input[type="text"].regular-text{max-width:320px}.tavif-section{margin-bottom:28px}.tavif-section:last-child{margin-bottom:0}.tavif-section h3{font-size:13px;font-weight:600;color:#1d2327;margin:0 0 14px;padding-bottom:8px;border-bottom:1px solid #e5e7eb;text-transform:uppercase;letter-spacing:.3px}.tavif-tools-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}.tavif-tool-card{background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:22px;display:flex;flex-direction:column}.tavif-tool-card h3{margin:0 0 8px;font-size:14px;color:#1d2327}.tavif-tool-card p{color:#6b7280;font-size:13px;margin:0 0 18px;line-height:1.5;flex:1}.tavif-tool-card .button{align-self:flex-start}.tavif-stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:24px}.tavif-stat-card{background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:18px;text-align:center}.tavif-stat-card .stat-value{font-size:28px;font-weight:700;color:#1d2327;line-height:1.2;font-variant-numeric:tabular-nums}.tavif-stat-card .stat-label{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-top:4px}.tavif-stat-card .stat-sub{font-size:12px;color:#9ca3af;margin-top:2px}.tavif-stat-card--highlight{background:#eff6ff;border-color:#bfdbfe}.tavif-stat-card--highlight .stat-value{color:#1d4ed8}.tavif-stat-card--green{background:#ecfdf5;border-color:#a7f3d0}.tavif-stat-card--green .stat-value{color:#065f46}.tavif-progress{margin-bottom:24px}.tavif-progress h3{font-size:13px;font-weight:600;margin:0 0 12px;color:#1d2327}.tavif-progress-row{display:flex;align-items:center;gap:12px;margin-bottom:10px;font-size:13px}.tavif-progress-row .bar-label{min-width:48px;font-weight:500}.tavif-progress-row .bar-wrap{flex:1;height:24px;background:#f3f4f6;border-radius:4px;overflow:hidden;position:relative}.tavif-progress-row .bar-fill{height:100%;border-radius:4px;transition:width .3s;min-width:2px}.tavif-progress-row .bar-fill--avif{background:linear-gradient(90deg,#6366f1,#818cf8)}.tavif-progress-row .bar-fill--webp{background:linear-gradient(90deg,#2563eb,#60a5fa)}.tavif-progress-row .bar-text{font-size:12px;color:#6b7280;min-width:80px;text-align:right}
+            .tavif-badge--fail{background:#fee2e2;color:#991b1b}
+            /* Log filters */
+            .tavif-log-filters{display:flex;gap:4px;flex-wrap:wrap}
+            .tavif-log-filter{display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:4px;font-size:13px;text-decoration:none;color:#6b7280;background:#f3f4f6;font-weight:500;transition:all .15s}
+            .tavif-log-filter:hover{background:#e5e7eb;color:#374151}
+            .tavif-log-filter--active{background:#1d2327;color:#fff}
+            .tavif-log-filter--active:hover{background:#1d2327;color:#fff}
+            .tavif-log-filter-count{font-size:11px;opacity:.7}
+            /* Log table */
+            .tavif-log-table{width:100%;border-collapse:collapse;font-size:13px}
+            .tavif-log-table th{text-align:left;padding:8px 10px;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.3px;color:#6b7280;border-bottom:2px solid #e5e7eb;white-space:nowrap}
+            .tavif-log-table td{padding:7px 10px;border-bottom:1px solid #f3f4f6;vertical-align:top}
+            .tavif-log-table tbody tr:hover{background:#f9fafb}
+            .tavif-log-time{font-variant-numeric:tabular-nums;color:#9ca3af;font-size:12px;white-space:nowrap}
+            .tavif-log-file{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+            .tavif-log-format{font-size:11px;font-weight:600;color:#6b7280}
+            .tavif-log-reason{color:#6b7280;font-size:12px}
+            .tavif-log-row--error td{background:#fef2f2}
+            .tavif-log-row--failed td{background:#fff7ed}
         </style>
 
         <div class="wrap tavif-wrap">
@@ -1258,6 +1277,7 @@ class TimberAVIF {
         if (!empty($_GET['cleared']))        echo '<div class="notice notice-success is-dismissible"><p>Caches cleared.</p></div>';
         if (isset($_GET['purged']))          echo '<div class="notice notice-success is-dismissible"><p>' . intval($_GET['purged']) . ' files deleted.</p></div>';
         if (!empty($_GET['queue_processed'])) echo '<div class="notice notice-success is-dismissible"><p>Queue processed.</p></div>';
+        if (!empty($_GET['logs_cleared']))   echo '<div class="notice notice-success is-dismissible"><p>Logs cleared.</p></div>';
     }
 
     /* ─────────────────────────────────────────────
@@ -1297,6 +1317,11 @@ class TimberAVIF {
         if ($sub === 'clear_cache') {
             self::clear_all_caches();
             wp_safe_redirect(add_query_arg(['cleared' => 'true', 'tab' => $tab], admin_url('options-general.php?page=timber-avif-settings')));
+            exit;
+        }
+        if ($sub === 'clear_logs') {
+            self::clear_logs();
+            wp_safe_redirect(add_query_arg(['logs_cleared' => 'true', 'tab' => 'logs'], admin_url('options-general.php?page=timber-avif-settings')));
             exit;
         }
         wp_safe_redirect(admin_url('options-general.php?page=timber-avif-settings'));
