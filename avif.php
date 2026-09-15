@@ -105,6 +105,7 @@ class TimberAVIF {
 
 	public static function init(): void {
 		self::load_settings();
+		self::load_textdomain();
 
 		add_filter('timber/twig', [__CLASS__, 'add_twig_filters']);
 		add_filter('timber/image/new_class', function () {
@@ -155,6 +156,25 @@ class TimberAVIF {
 
 		if (defined('WP_CLI') && WP_CLI) {
 			self::register_cli();
+		}
+	}
+
+	/**
+	 * Admin strings ship in English and a .mo translates them.
+	 * Looked up in the theme's languages/ folder first, then next to this file.
+	 * Nothing to install: without a .mo the UI stays in English.
+	 */
+	private static function load_textdomain(): void {
+		if (!is_admin()) return;
+
+		$file = 'timber-avif-' . determine_locale() . '.mo';
+
+		foreach ([get_stylesheet_directory(), get_template_directory(), __DIR__] as $dir) {
+			$mofile = $dir . '/languages/' . $file;
+			if (is_readable($mofile)) {
+				load_textdomain('timber-avif', $mofile);
+				return;
+			}
 		}
 	}
 
@@ -1143,7 +1163,7 @@ class TimberAVIF {
 	public static function admin_notice(): void {
 		if (self::detect_capabilities('avif') !== 'none') return;
 		if (!current_user_can('manage_options')) return;
-		echo '<div class="notice notice-warning is-dismissible"><p><strong>Timber AVIF:</strong> questo server non può generare AVIF. Le immagini vengono servite in WebP o nel formato originale.</p></div>';
+		echo '<div class="notice notice-warning is-dismissible"><p><strong>Timber AVIF:</strong> ' . esc_html__('this server cannot generate AVIF. Images are served as WebP or in their original format.', 'timber-avif') . '</p></div>';
 	}
 
 	public static function render_admin_page(): void {
@@ -1154,7 +1174,7 @@ class TimberAVIF {
 		$base_url = admin_url('options-general.php?page=timber-avif-settings');
 		$avif_method = self::detect_capabilities('avif');
 		$webp_method = self::detect_capabilities('webp');
-		$method_labels = ['gd' => 'GD', 'imagick' => 'ImageMagick', 'exec' => 'ImageMagick CLI', 'none' => 'Non disponibile'];
+		$method_labels = ['gd' => 'GD', 'imagick' => 'ImageMagick', 'exec' => 'ImageMagick CLI', 'none' => __('Not available', 'timber-avif')];
 		$queue_count = count(get_option(self::QUEUE_KEY, []));
 		$log_count   = count(get_option(self::LOG_KEY, []));
 		?>
@@ -1226,14 +1246,14 @@ class TimberAVIF {
 			$pregen   = array_filter(array_map('intval', array_map('trim', explode(',', (string) ($settings['pregenerate_widths'] ?? '')))));
 			$cron_off = defined('DISABLE_WP_CRON') && DISABLE_WP_CRON;
 			$cards = [
-				['Formato servito', $modern ? strtoupper($modern) : 'Originale', $modern ? 'ok' : 'off'],
-				['Motore', $modern ? self::engine_label(self::detect_capabilities($modern)) : '—', $modern ? 'ok' : 'off'],
-				['Qualità', $modern ? $settings[$modern . '_quality'] . ' · JPEG ' . ($settings['jpeg_quality'] ?? '—') : 'JPEG ' . ($settings['jpeg_quality'] ?? '—'), 'ok'],
-				['Larghezze', count($widths) . (!empty($settings['pregenerate_breakpoints']) && $pregen ? ' / ' . count($pregen) : ''), 'ok',
+				[__('Served format', 'timber-avif'), $modern ? strtoupper($modern) : __('Original', 'timber-avif'), $modern ? 'ok' : 'off'],
+				[__('Engine', 'timber-avif'), $modern ? self::engine_label(self::detect_capabilities($modern)) : '—', $modern ? 'ok' : 'off'],
+				[__('Quality', 'timber-avif'), $modern ? $settings[$modern . '_quality'] . ' · JPEG ' . ($settings['jpeg_quality'] ?? '—') : 'JPEG ' . ($settings['jpeg_quality'] ?? '—'), 'ok'],
+				[__('Widths', 'timber-avif'), count($widths) . (!empty($settings['pregenerate_breakpoints']) && $pregen ? ' / ' . count($pregen) : ''), 'ok',
 					!empty($settings['pregenerate_breakpoints']) && $pregen
-						? sprintf('%d definite, %d generate al caricamento', count($widths), count($pregen))
-						: sprintf('%d definite, generate alla prima visita', count($widths))],
-				['Coda', $queue_count ? $queue_count . ' in attesa' : 'Vuota', $queue_count ? 'warn' : 'ok'],
+						? sprintf(__('%1$d defined, %2$d built on upload', 'timber-avif'), count($widths), count($pregen))
+						: sprintf(__('%d defined, built on first request', 'timber-avif'), count($widths))],
+				[__('Queue', 'timber-avif'), $queue_count ? sprintf(_n('%d pending', '%d pending', $queue_count, 'timber-avif'), $queue_count) : __('Empty', 'timber-avif'), $queue_count ? 'warn' : 'ok'],
 			];
 			?>
 			<div class="tavif-cards">
@@ -1248,14 +1268,14 @@ class TimberAVIF {
 				<?php endforeach; ?>
 			</div>
 			<?php if ($queue_count && $cron_off) : ?>
-				<p class="tavif-notice">Le immagini in coda vengono convertite poco per volta mentre lavori nell'amministrazione.</p>
+				<p class="tavif-notice"><?php esc_html_e('Queued images are converted a few at a time while you work in the admin.', 'timber-avif'); ?></p>
 			<?php endif; ?>
 
 			<h2 class="nav-tab-wrapper">
-				<a href="<?php echo esc_url(add_query_arg('tab', 'settings', $base_url)); ?>" class="nav-tab <?php echo $tab === 'settings' ? 'nav-tab-active' : ''; ?>">Impostazioni</a>
-				<a href="<?php echo esc_url(add_query_arg('tab', 'tools', $base_url)); ?>" class="nav-tab <?php echo $tab === 'tools' ? 'nav-tab-active' : ''; ?>">Strumenti</a>
-				<a href="<?php echo esc_url(add_query_arg('tab', 'statistics', $base_url)); ?>" class="nav-tab <?php echo $tab === 'statistics' ? 'nav-tab-active' : ''; ?>">Statistiche</a>
-				<a href="<?php echo esc_url(add_query_arg('tab', 'logs', $base_url)); ?>" class="nav-tab <?php echo $tab === 'logs' ? 'nav-tab-active' : ''; ?>">Registro<?php if ($log_count > 0) echo ' <span class="count">(' . esc_html($log_count) . ')</span>'; ?></a>
+				<a href="<?php echo esc_url(add_query_arg('tab', 'settings', $base_url)); ?>" class="nav-tab <?php echo $tab === 'settings' ? 'nav-tab-active' : ''; ?>"><?php esc_html_e('Settings', 'timber-avif'); ?></a>
+				<a href="<?php echo esc_url(add_query_arg('tab', 'tools', $base_url)); ?>" class="nav-tab <?php echo $tab === 'tools' ? 'nav-tab-active' : ''; ?>"><?php esc_html_e('Tools', 'timber-avif'); ?></a>
+				<a href="<?php echo esc_url(add_query_arg('tab', 'statistics', $base_url)); ?>" class="nav-tab <?php echo $tab === 'statistics' ? 'nav-tab-active' : ''; ?>"><?php esc_html_e('Statistics', 'timber-avif'); ?></a>
+				<a href="<?php echo esc_url(add_query_arg('tab', 'logs', $base_url)); ?>" class="nav-tab <?php echo $tab === 'logs' ? 'nav-tab-active' : ''; ?>"><?php esc_html_e('Log', 'timber-avif'); ?><?php if ($log_count > 0) echo ' <span class="count">(' . esc_html($log_count) . ')</span>'; ?></a>
 			</h2>
 
 			<div class="tavif-card">
@@ -1284,17 +1304,17 @@ class TimberAVIF {
 			<input type="hidden" name="tab" value="settings" />
 
 			<div class="tavif-block">
-				<h3>Formato e qualità</h3>
+				<h3><?php esc_html_e('Format and quality', 'timber-avif'); ?></h3>
 
 				<div class="tavif-field">
-					<label class="tavif-field-label" for="tavif-format">Formato</label>
+					<label class="tavif-field-label" for="tavif-format"><?php esc_html_e('Format', 'timber-avif'); ?></label>
 					<div class="tavif-field-input">
 						<select name="format_mode" id="tavif-format">
-							<?php foreach (['auto' => 'Auto', 'avif' => 'AVIF', 'webp' => 'WebP', 'off' => 'Nessuno'] as $k => $label) : ?>
+							<?php foreach (['auto' => __('Auto', 'timber-avif'), 'avif' => 'AVIF', 'webp' => 'WebP', 'off' => __('None', 'timber-avif')] as $k => $label) : ?>
 								<option value="<?php echo esc_attr($k); ?>" <?php selected($s['format_mode'] ?? 'auto', $k); ?>><?php echo esc_html($label); ?></option>
 							<?php endforeach; ?>
 						</select>
-						<p class="tavif-hint">Servito al posto dell'originale, che resta come riserva.</p>
+						<p class="tavif-hint"><?php esc_html_e('Served instead of the original, which stays as a fallback.', 'timber-avif'); ?></p>
 					</div>
 				</div>
 
@@ -1318,79 +1338,79 @@ class TimberAVIF {
 						</div>
 					</div>
 				<?php endforeach; ?>
-				<p class="tavif-hint tavif-hint--block">Le scale non sono confrontabili fra formati: AVIF 75 equivale a JPEG 95.</p>
+				<p class="tavif-hint tavif-hint--block"><?php esc_html_e('Quality scales are not comparable across formats: AVIF 75 matches JPEG 95.', 'timber-avif'); ?></p>
 			</div>
 
 			<div class="tavif-block">
-				<h3>Larghezze</h3>
-				<p class="tavif-block-intro">Le misure in cui ogni immagine viene generata. Il browser sceglie da sé la più adatta allo schermo.</p>
+				<h3><?php esc_html_e('Widths', 'timber-avif'); ?></h3>
+				<p class="tavif-block-intro"><?php esc_html_e('The sizes every image is generated in. The browser picks the one that fits the screen.', 'timber-avif'); ?></p>
 
 				<div class="tavif-field">
-					<label class="tavif-field-label" for="tavif-widths">Misure</label>
+					<label class="tavif-field-label" for="tavif-widths"><?php esc_html_e('Sizes', 'timber-avif'); ?></label>
 					<div class="tavif-field-input">
 						<input type="text" id="tavif-widths" name="breakpoint_widths" value="<?php echo esc_attr($s['breakpoint_widths']); ?>" class="regular-text" />
-						<p class="tavif-hint">Separate da virgola. Ogni misura è un file in più per immagine.</p>
+						<p class="tavif-hint"><?php esc_html_e('Comma-separated. Each size is one more file per image.', 'timber-avif'); ?></p>
 					</div>
 				</div>
 
 				<div class="tavif-field">
-					<label class="tavif-field-label">Al caricamento</label>
+					<label class="tavif-field-label"><?php esc_html_e('On upload', 'timber-avif'); ?></label>
 					<div class="tavif-field-input">
 						<input type="hidden" name="pregenerate_widths" id="tavif-pregen" value="<?php echo esc_attr($s['pregenerate_widths'] ?? ''); ?>" />
 						<div class="tavif-chips" id="tavif-chips"></div>
-						<p class="tavif-hint">Le misure spuntate si generano subito. Le altre alla prima visita della pagina che le usa.</p>
+						<p class="tavif-hint"><?php esc_html_e('Ticked sizes are built right away. The rest on the first visit to a page that uses them.', 'timber-avif'); ?></p>
 						<label class="tavif-toggle">
 							<input type="hidden" name="pregenerate_breakpoints" value="0" />
 							<input type="checkbox" name="pregenerate_breakpoints" value="1" <?php checked($s['pregenerate_breakpoints']); ?> />
 							<span class="slider"></span>
-							<span class="toggle-label">Attivo</span>
+							<span class="toggle-label"><?php esc_html_e('Enabled', 'timber-avif'); ?></span>
 						</label>
 					</div>
 				</div>
 			</div>
 
 			<div class="tavif-block">
-				<h3>Limiti</h3>
+				<h3><?php esc_html_e('Limits', 'timber-avif'); ?></h3>
 
 				<div class="tavif-field">
-					<label class="tavif-field-label" for="tavif-upload">Caricamento</label>
+					<label class="tavif-field-label" for="tavif-upload"><?php esc_html_e('Upload', 'timber-avif'); ?></label>
 					<div class="tavif-field-input">
 						<input type="number" id="tavif-upload" name="max_upload_dimension" value="<?php echo esc_attr($s['max_upload_dimension'] ?? 2560); ?>" min="1024" step="1" /> px
-						<p class="tavif-hint">Le immagini più larghe vengono ridotte a questa misura.</p>
+						<p class="tavif-hint"><?php esc_html_e('Wider images are scaled down to this size on arrival.', 'timber-avif'); ?></p>
 					</div>
 				</div>
 
 				<div class="tavif-field">
-					<label class="tavif-field-label" for="tavif-maxdim">Conversione</label>
+					<label class="tavif-field-label" for="tavif-maxdim"><?php esc_html_e('Conversion', 'timber-avif'); ?></label>
 					<div class="tavif-field-input">
 						<input type="number" id="tavif-maxdim" name="max_dimension" value="<?php echo esc_attr($s['max_dimension']); ?>" min="512" step="1" /> px
 						<input type="number" name="max_file_size" value="<?php echo esc_attr($s['max_file_size']); ?>" min="1" step="1" /> MB
-						<p class="tavif-hint">Oltre questi valori l'immagine viene lasciata com'è, per non esaurire la memoria del server. Vale anche per i file già in libreria, che possono superare il limite di caricamento.</p>
+						<p class="tavif-hint"><?php esc_html_e('Past either value the image is left as it is, to avoid exhausting server memory. This also covers files already in the library, which can exceed the upload limit.', 'timber-avif'); ?></p>
 					</div>
 				</div>
 
 				<div class="tavif-field">
-					<label class="tavif-field-label" for="tavif-budget">Per pagina</label>
+					<label class="tavif-field-label" for="tavif-budget"><?php esc_html_e('Per page', 'timber-avif'); ?></label>
 					<div class="tavif-field-input">
-						<input type="number" id="tavif-budget" name="max_inline_conversions" value="<?php echo esc_attr($s['max_inline_conversions'] ?? self::MAX_INLINE_CONVERSIONS); ?>" min="0" max="50" step="1" /> immagini
-						<p class="tavif-hint">Quante convertirne mentre il visitatore attende. Le altre proseguono in background.</p>
+						<input type="number" id="tavif-budget" name="max_inline_conversions" value="<?php echo esc_attr($s['max_inline_conversions'] ?? self::MAX_INLINE_CONVERSIONS); ?>" min="0" max="50" step="1" /> <?php esc_html_e('images', 'timber-avif'); ?>
+						<p class="tavif-hint"><?php esc_html_e('How many to convert while the visitor waits. The rest continue in the background.', 'timber-avif'); ?></p>
 					</div>
 				</div>
 
 				<div class="tavif-field">
-					<label class="tavif-field-label">Scarto</label>
+					<label class="tavif-field-label"><?php esc_html_e('Discard', 'timber-avif'); ?></label>
 					<div class="tavif-field-input">
 						<label class="tavif-toggle">
 							<input type="hidden" name="only_if_smaller" value="0" />
 							<input type="checkbox" name="only_if_smaller" value="1" <?php checked($s['only_if_smaller']); ?> />
 							<span class="slider"></span>
-							<span class="toggle-label">Tieni il file convertito solo se pesa meno dell'originale</span>
+							<span class="toggle-label"><?php esc_html_e('Keep the converted file only if it weighs less than the original', 'timber-avif'); ?></span>
 						</label>
 					</div>
 				</div>
 			</div>
 
-			<?php submit_button('Salva'); ?>
+			<?php submit_button(__('Save', 'timber-avif')); ?>
 		</form>
 
 		<script>
@@ -1435,7 +1455,7 @@ class TimberAVIF {
 	}
 
 	private static function engine_label(string $method): string {
-		return ['gd' => 'GD', 'imagick' => 'ImageMagick', 'exec' => 'ImageMagick CLI', 'none' => 'Non disponibile'][$method] ?? $method;
+		return ['gd' => 'GD', 'imagick' => 'ImageMagick', 'exec' => 'ImageMagick CLI', 'none' => __('Not available', 'timber-avif')][$method] ?? $method;
 	}
 
 	private static function render_tools_tab(): void {
@@ -1443,9 +1463,9 @@ class TimberAVIF {
 		?>
 		<div class="tavif-tools-grid">
 			<div class="tavif-tool-card">
-				<h3>Converti tutto</h3>
-				<p>Genera il formato moderno per tutte le immagini della libreria. Quelle già convertite vengono saltate.</p>
-				<button type="button" id="tavif-bulk-start" class="button button-primary">Avvia</button>
+				<h3><?php esc_html_e('Convert everything', 'timber-avif'); ?></h3>
+				<p><?php esc_html_e('Generate the modern format for every image in the library. Already converted ones are skipped.', 'timber-avif'); ?></p>
+				<button type="button" id="tavif-bulk-start" class="button button-primary"><?php esc_html_e('Start', 'timber-avif'); ?></button>
 				<div id="tavif-bulk-progress" style="display:none;margin-top:14px;">
 					<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
 						<div style="flex:1;height:22px;background:#f3f4f6;border-radius:4px;overflow:hidden;">
@@ -1457,31 +1477,31 @@ class TimberAVIF {
 				</div>
 			</div>
 			<div class="tavif-tool-card">
-				<h3>Elimina le conversioni</h3>
-				<p>Cancella tutti i file AVIF e WebP generati. Gli originali non vengono toccati e i file si rigenerano alla prima visita. Serve dopo un cambio di qualità, per riallineare la libreria.</p>
+				<h3><?php esc_html_e('Delete conversions', 'timber-avif'); ?></h3>
+				<p><?php esc_html_e('Deletes every generated AVIF and WebP file. Originals are untouched and files rebuild on first visit. Use it after a quality change, to realign the library.', 'timber-avif'); ?></p>
 				<form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
 					<?php wp_nonce_field('timber_avif_tools'); ?>
 					<input type="hidden" name="action" value="timber_avif_tools" />
 					<input type="hidden" name="subaction" value="purge_conversions" />
 					<input type="hidden" name="tab" value="tools" />
-					<button type="submit" class="button" style="color:#b91c1c;" onclick="return confirm('Eliminare tutti i file AVIF e WebP generati?');">Elimina</button>
+					<button type="submit" class="button" style="color:#b91c1c;" onclick="return confirm('<?php echo esc_js(__('Delete every generated AVIF and WebP file?', 'timber-avif')); ?>');"><?php esc_html_e('Delete', 'timber-avif'); ?></button>
 				</form>
 			</div>
 			<div class="tavif-tool-card">
-				<h3>Svuota la cache</h3>
-				<p>Rileva di nuovo i motori di conversione disponibili sul server e azzera la memoria dei tentativi falliti.</p>
+				<h3><?php esc_html_e('Clear cache', 'timber-avif'); ?></h3>
+				<p><?php esc_html_e('Detect the conversion engines available on this server again, and clear the memory of failed attempts.', 'timber-avif'); ?></p>
 				<form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
 					<?php wp_nonce_field('timber_avif_tools'); ?>
 					<input type="hidden" name="action" value="timber_avif_tools" />
 					<input type="hidden" name="subaction" value="clear_cache" />
 					<input type="hidden" name="tab" value="tools" />
-					<button type="submit" class="button">Svuota</button>
+					<button type="submit" class="button"><?php esc_html_e('Clear', 'timber-avif'); ?></button>
 				</form>
 			</div>
 			<div class="tavif-tool-card">
-				<h3>Coda</h3>
-				<p><span id="tavif-queue-remaining"><?php echo esc_html($queue_count); ?></span> immagini in attesa di conversione.</p>
-				<button type="button" id="tavif-queue-start" class="button"<?php echo $queue_count === 0 ? ' disabled' : ''; ?>>Elabora ora</button>
+				<h3><?php esc_html_e('Queue', 'timber-avif'); ?></h3>
+				<p><span id="tavif-queue-remaining"><?php echo esc_html($queue_count); ?></span> <?php esc_html_e('images waiting to be converted.', 'timber-avif'); ?></p>
+				<button type="button" id="tavif-queue-start" class="button"<?php echo $queue_count === 0 ? ' disabled' : ''; ?>><?php esc_html_e('Process now', 'timber-avif'); ?></button>
 				<div id="tavif-queue-progress" style="display:none;margin-top:14px;">
 					<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
 						<div style="flex:1;height:22px;background:#f3f4f6;border-radius:4px;overflow:hidden;">
@@ -1517,7 +1537,7 @@ class TimberAVIF {
 		<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
 			<div class="tavif-log-filters">
 				<?php
-				$labels = ['all' => 'Tutte', 'skipped' => 'Saltate', 'failed' => 'Non riuscite', 'error' => 'Errori'];
+				$labels = ['all' => __('All', 'timber-avif'), 'skipped' => __('Skipped', 'timber-avif'), 'failed' => __('Failed', 'timber-avif'), 'error' => __('Errors', 'timber-avif')];
 				foreach ($labels as $key => $label):
 					$count = $status_counts[$key] ?? 0;
 					$active = $filter === $key;
@@ -1531,22 +1551,22 @@ class TimberAVIF {
 				<input type="hidden" name="action" value="timber_avif_tools" />
 				<input type="hidden" name="subaction" value="clear_logs" />
 				<input type="hidden" name="tab" value="logs" />
-				<button type="submit" class="button" style="color:#b91c1c;" onclick="return confirm('Svuotare il registro?');">Svuota il registro</button>
+				<button type="submit" class="button" style="color:#b91c1c;" onclick="return confirm('<?php echo esc_js(__('Clear the log?', 'timber-avif')); ?>');"><?php esc_html_e('Clear log', 'timber-avif'); ?></button>
 			</form>
 			<?php endif; ?>
 		</div>
 
 		<?php if (empty($filtered)): ?>
-			<p class="description">Nessuna voce<?php echo $filter !== 'all' ? ' matching this filter' : ''; ?>.</p>
+			<p class="description"><?php esc_html_e('No entries', 'timber-avif'); ?><?php echo $filter !== 'all' ? ' matching this filter' : ''; ?>.</p>
 		<?php else: ?>
 			<table class="tavif-log-table">
 				<thead>
 					<tr>
-						<th style="width:145px;">Ora</th>
+						<th style="width:145px;"><?php esc_html_e('Time', 'timber-avif'); ?></th>
 						<th>File</th>
-						<th style="width:60px;">Formato</th>
-						<th style="width:80px;">Esito</th>
-						<th>Motivo</th>
+						<th style="width:60px;"><?php esc_html_e('Format', 'timber-avif'); ?></th>
+						<th style="width:80px;"><?php esc_html_e('Result', 'timber-avif'); ?></th>
+						<th><?php esc_html_e('Reason', 'timber-avif'); ?></th>
 					</tr>
 				</thead>
 				<tbody>
@@ -1570,7 +1590,7 @@ class TimberAVIF {
 					<?php endforeach; ?>
 				</tbody>
 			</table>
-			<p class="description" style="margin-top:12px;">Ultime <?php echo count($filtered); ?> of <?php echo count($logs); ?> entries (max <?php echo self::MAX_LOG_ENTRIES; ?> kept). Oldest entries are auto-pruned.</p>
+			<p class="description" style="margin-top:12px;"><?php esc_html_e('Showing', 'timber-avif'); ?> ?php echo count($filtered); ?> of <?php echo count($logs); ?> entries (max <?php echo self::MAX_LOG_ENTRIES; ?> kept). Oldest entries are auto-pruned.</p>
 		<?php endif;
 	}
 
@@ -1589,37 +1609,43 @@ class TimberAVIF {
 		<div class="tavif-stats-grid">
 			<div class="tavif-stat-card">
 				<div class="stat-value"><?php echo esc_html($total); ?></div>
-				<div class="stat-label">Immagini</div>
+				<div class="stat-label"><?php esc_html_e('Images', 'timber-avif'); ?></div>
 			</div>
 			<div class="tavif-stat-card tavif-stat-card--highlight">
 				<div class="stat-value"><?php echo esc_html($done); ?></div>
-				<div class="stat-label">Convertite in <?php echo esc_html(strtoupper($modern)); ?></div>
-				<div class="stat-sub"><?php echo (int) $pct; ?>% della libreria</div>
+				<div class="stat-label"><?php printf(esc_html__('Converted to %s', 'timber-avif'), esc_html(strtoupper($modern))); ?></div>
+				<div class="stat-sub"><?php printf(esc_html__('%d%% of the library', 'timber-avif'), (int) $pct); ?></div>
 			</div>
 			<?php if ($saved > 0) : ?>
 				<div class="tavif-stat-card tavif-stat-card--green">
 					<div class="stat-value"><?php echo self::format_bytes($saved); ?></div>
-					<div class="stat-label">Risparmio</div>
-					<div class="stat-sub"><?php echo (int) $savePct; ?>% su <?php echo self::format_bytes($stats['orig_size']); ?></div>
+					<div class="stat-label"><?php esc_html_e('Saved', 'timber-avif'); ?></div>
+					<div class="stat-sub"><?php printf(esc_html__('%1$d%% of %2$s', 'timber-avif'), (int) $savePct, self::format_bytes($stats['orig_size'])); ?></div>
 				</div>
 			<?php endif; ?>
 		</div>
 
 		<?php if ($done < $total) : ?>
 			<p class="description" style="margin-bottom:20px;">
-				Le <?php echo (int) ($total - $done); ?> immagini non convertite sono quelle in cui il formato moderno peserebbe più dell'originale: succede su grafiche piatte e icone, e vengono lasciate com'erano.
+				<?php printf(
+					esc_html__('The %d images left out are those where the modern format would weigh more than the original: it happens on flat graphics and icons, and they are left as they were.', 'timber-avif'),
+					(int) ($total - $done)
+				); ?>
 			</p>
 		<?php endif; ?>
 
 		<?php if ($stats[$other] > 0) : ?>
 			<p class="description">
-				In libreria ci sono anche <?php echo (int) $stats[$other]; ?> file <?php echo esc_html(strtoupper($other)); ?>
-				(<?php echo self::format_bytes($stats[$other . '_size']); ?>), generati quando il formato servito era un altro.
-				Si eliminano da Strumenti &rarr; Elimina le conversioni.
+				<?php printf(
+					esc_html__('The library also holds %1$d %2$s files (%3$s), generated when a different format was being served. Remove them from Tools &rarr; Delete conversions.', 'timber-avif'),
+					(int) $stats[$other],
+					esc_html(strtoupper($other)),
+					self::format_bytes($stats[$other . '_size'])
+				); ?>
 			</p>
 		<?php endif; ?>
 
-		<p class="description">Aggiornato ogni 5 minuti. Il conteggio riguarda le immagini originali, non le singole misure generate.</p>
+		<p class="description"><?php esc_html_e('Updated every 5 minutes. The count covers original images, not the individual sizes generated from them.', 'timber-avif'); ?></p>
 		<?php
 	}
 
@@ -1652,12 +1678,12 @@ class TimberAVIF {
 	}
 
 	private static function render_admin_notices(): void {
-		if (!empty($_GET['updated']))        echo '<div class="notice notice-success is-dismissible"><p>Impostazioni salvate.</p></div>';
-		if (!empty($_GET['converted']))      echo '<div class="notice notice-success is-dismissible"><p>Conversione completata.</p></div>';
-		if (!empty($_GET['cleared']))        echo '<div class="notice notice-success is-dismissible"><p>Cache svuotata.</p></div>';
-		if (isset($_GET['purged']))          echo '<div class="notice notice-success is-dismissible"><p>' . intval($_GET['purged']) . ' file eliminati.</p></div>';
-		if (!empty($_GET['queue_processed'])) echo '<div class="notice notice-success is-dismissible"><p>Coda elaborata.</p></div>';
-		if (!empty($_GET['logs_cleared']))   echo '<div class="notice notice-success is-dismissible"><p>Registro svuotato.</p></div>';
+		if (!empty($_GET['updated']))        echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Settings saved.', 'timber-avif') . '</p></div>';
+		if (!empty($_GET['converted']))      echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Conversion complete.', 'timber-avif') . '</p></div>';
+		if (!empty($_GET['cleared']))        echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Cache cleared.', 'timber-avif') . '</p></div>';
+		if (isset($_GET['purged']))          echo '<div class="notice notice-success is-dismissible"><p>' . sprintf(esc_html__('%d files deleted.', 'timber-avif'), intval($_GET['purged'])) . '</p></div>';
+		if (!empty($_GET['queue_processed'])) echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Queue processed.', 'timber-avif') . '</p></div>';
+		if (!empty($_GET['logs_cleared']))   echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Log cleared.', 'timber-avif') . '</p></div>';
 	}
 
 	/* ─────────────────────────────────────────────
@@ -1803,22 +1829,22 @@ class TimberAVIF {
 					var btn=$('#tavif-bulk-start'),wrap=$('#tavif-bulk-progress'),bar=$('#tavif-bulk-bar'),count=$('#tavif-bulk-count'),status=$('#tavif-bulk-status');
 					if(!btn.length)return;
 					btn.on('click',function(){
-						if(running){cancelled=true;btn.prop('disabled',true).text('Interruzione\u2026');return;}
+						if(running){cancelled=true;btn.prop('disabled',true).text('<?php echo esc_js(__('Stopping…', 'timber-avif')); ?>');return;}
 						running=true;cancelled=false;
-						btn.text('Annulla').removeClass('button-primary').addClass('button-secondary');
-						wrap.show();bar.css('width','0%');count.text('0 / \u2026');status.text('Avvio\u2026');
+						btn.text('<?php echo esc_js(__('Cancel', 'timber-avif')); ?>').removeClass('button-primary').addClass('button-secondary');
+						wrap.show();bar.css('width','0%');count.text('0 / \u2026');status.text('<?php echo esc_js(__('Starting…', 'timber-avif')); ?>');
 						run(0);
 					});
 					function run(offset){
-						if(cancelled){done('Annullato a '+offset);return;}
+						if(cancelled){done('<?php echo esc_js(__('Cancelled at', 'timber-avif')); ?> '+offset);return;}
 						$.post(url,{action:'timber_avif_bulk_batch',nonce:'" . esc_js($bulk_nonce) . "',offset:offset,batch_size:5},function(r){
 							if(!r.success){done('Error: '+(r.data||'unknown'));return;}
 							var d=r.data,pct=d.total>0?Math.round(d.processed/d.total*100):0;
 							bar.css('width',pct+'%');count.text(d.processed+' / '+d.total);status.text(pct+'%');
-							if(d.done)done(d.processed+' immagini elaborate.');else run(d.processed);
+							if(d.done)done(d.processed+' <?php echo esc_js(__('images processed.', 'timber-avif')); ?>');else run(d.processed);
 						}).fail(function(){done('Request failed.');});
 					}
-					function done(msg){running=false;cancelled=false;btn.prop('disabled',false).text('Avvia').removeClass('button-secondary').addClass('button-primary');status.text(msg);bar.css('width','100%');}
+					function done(msg){running=false;cancelled=false;btn.prop('disabled',false).text('<?php echo esc_js(__('Start', 'timber-avif')); ?>').removeClass('button-secondary').addClass('button-primary');status.text(msg);bar.css('width','100%');}
 				})();
 
 				/* ── Process Queue ── */
@@ -1830,7 +1856,7 @@ class TimberAVIF {
 					btn.on('click',function(){
 						if(running||total===0)return;
 						running=true;
-						btn.prop('disabled',true).text('Elaborazione\u2026');
+						btn.prop('disabled',true).text('<?php echo esc_js(__('Processing…', 'timber-avif')); ?>');
 						wrap.show();bar.css('width','0%');countEl.text('0');status.text('Avvio\u2026');
 						var processed=0;
 						run();
@@ -1842,11 +1868,11 @@ class TimberAVIF {
 								var pct=total>0?Math.min(100,Math.round(processed/total*100)):100;
 								bar.css('width',pct+'%');countEl.text(processed+' / '+total);remaining.text(d.remaining);
 								status.text(d.remaining+' remaining\u2026');
-								if(d.done){done(processed+' conversioni completate.');}else{run();}
+								if(d.done){done(processed+' <?php echo esc_js(__('conversions complete.', 'timber-avif')); ?>');}else{run();}
 							}).fail(function(){done('Request failed.');});
 						}
 					});
-					function done(msg){running=false;btn.prop('disabled',false).text('Elabora ora');status.text(msg);bar.css('width','100%');remaining.text('0');}
+					function done(msg){running=false;btn.prop('disabled',false).text('<?php echo esc_js(__('Process now', 'timber-avif')); ?>');status.text(msg);bar.css('width','100%');remaining.text('0');}
 				})();
 			});
 		");

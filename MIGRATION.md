@@ -39,9 +39,13 @@ Where the old recipe genuinely changed the aspect ratio per breakpoint — real 
 - **Timber upscales silently.** A candidate wider than the original produced a file both heavier and blurrier than the original itself. Capped.
 - Animated GIFs are skipped instead of being flattened to their first frame.
 
+### Translations
+
+The admin UI is now translatable (textdomain `timber-avif`), with Italian included. Copy `languages/` next to `avif.php`; without it the UI stays in English, as before.
+
 ### Migration steps
 
-1. Replace `avif.php` and `macros.twig`.
+1. Replace `avif.php` and `macros.twig`, and copy `languages/` if you want a translated admin.
 2. Update every `macros.image()` call: translate the `sizes` map into a CSS string.
 3. Review Settings → Timber AVIF: pick `format_mode`, check the quality values, choose which widths to pre-build on upload.
 4. **The old variants are now orphans.** Every `-WxH-c-default.*` file at a size nothing asks for any more stays on disk — in one theme that was 690 files and 35 MB. Delete them, or use Tools → Purge to drop all generated files and let them rebuild.

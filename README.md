@@ -27,6 +27,7 @@ v6 emits a `srcset` with `w` descriptors from **one shared set of widths**, and 
    require_once get_template_directory() . '/inc/avif.php';
    ```
 2. Copy `macros.twig` into your Twig templates directory.
+3. Optional: copy `languages/` into your theme root to get the admin UI in your language.
 
 ## Usage
 
@@ -76,6 +77,28 @@ v6 emits a `srcset` with `w` descriptors from **one shared set of widths**, and 
 **The scales are not comparable across codecs.** AVIF 75 is already past JPEG 95 in perceived quality; pushing AVIF to 90 roughly triples the file size for a difference the eye does not find on photographs. The "never below 90" rule that makes sense for JPEG does not transfer.
 
 Defaults: AVIF 75 · WebP 90 · JPEG 95. JPEG quality applies to every resize WordPress and Timber generate, not only to uploads.
+
+## Translations
+
+The admin UI ships in English and loads a `.mo` matching the user's admin language. **Italian is included.** Without a `.mo` nothing breaks — the UI just stays in English.
+
+The folder is looked up in this order, so it can sit wherever suits your theme:
+
+1. `wp-content/themes/<child>/languages/` — lets a child theme override
+2. `wp-content/themes/<parent>/languages/` — the WordPress convention, and where Loco Translate looks
+3. next to `avif.php` — handy if you keep the drop-in self-contained
+
+To add a language, translate `languages/timber-avif.pot` and compile it:
+
+```bash
+msgfmt -o languages/timber-avif-fr_FR.mo languages/timber-avif-fr_FR.po
+```
+
+To regenerate the template after editing strings:
+
+```bash
+wp i18n make-pot . languages/timber-avif.pot --domain=timber-avif --include=avif.php
+```
 
 ## Notes
 
