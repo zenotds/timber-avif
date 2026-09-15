@@ -1,95 +1,83 @@
-# Timber AVIF (v5.3.0)
+# Timber AVIF (v6.0)
 
-Performance-first image optimization for Timber 2.x. This is a lightweight **theme drop-in** that adds AVIF/WebP support, background conversion, and a responsive Twig macro.
+Responsive images for Timber 2.x. A **theme drop-in** that generates AVIF/WebP next to the original and builds a `<picture>` the browser can actually choose from.
+
+## What v6 changes
+
+The macro used to emit one `<source media>` per breakpoint with fixed 1x/2x densities, and asked the caller for absolute pixel widths. That multiplies files (one theme measured 185 variants of a single photo, and 98 distinct sizes across the site), prevents reuse between templates, and hands the browser only two steps to choose from — so on a device at DPR 1.75 it is forced up to the 2x candidate and downloads roughly twice the bytes it needs.
+
+v6 emits a `srcset` with `w` descriptors from **one shared set of widths**, and lets the browser pick using the `sizes` each template declares.
 
 ## Features
-- **AVIF + WebP support** with tiered engines (GD > Imagick > CLI).
-- **Hybrid Conversion:** Fast inline conversion (up to 10 per request) + Background queue (shutdown & WP-Cron).
-- **Failure Awareness:** Remembers failed conversions for 24h to avoid wasteful retries.
-- **Timber Integration:** Leverages native `|resize` and `|towebp`.
-- **Twig Helpers:** `|toavif`, `|avif_src`, `|webp_src`, `|best_src`, `image.avif`, `image.webp`, `image.best`.
-- **Responsive Macro:** Mobile-first `(min-width)`, 2x capping, and accessible alt/title fallbacks.
-- **Admin UI:** Settings, Statistics, Tools, and detailed **Logs** (Settings > Timber AVIF).
-- **WP-CLI:** `timber-avif detect`, `timber-avif bulk`, `timber-avif queue`, `timber-avif clear-cache`.
+
+- **One modern format per request**, resolved from what the server can encode (AVIF, else WebP), with the original as fallback.
+- **Canonical widths** shared across the whole theme, so the same photo reuses the same files everywhere.
+- **Never upscales.** Candidates are capped at the original width — Timber's `resize` will happily invent pixels, this does not.
+- **Hybrid generation:** the most-used widths are built on upload, the rest on first request with a per-request budget, then after the response, then in a queue.
+- **Queue survives without WP-Cron**, drained during admin requests, and discards jobs whose source is gone.
+- **Failure awareness** keyed to quality, engine and SAPI, so changing a setting retires stale failures.
+- **Twig:** `image_sources()`, `|toavif`, `|avif_src`, `|webp_src`, `|best_src`, `image.avif`, `image.webp`, `image.best`.
+- **Admin UI:** settings, tools, statistics and logs under Settings → Timber AVIF.
+- **WP-CLI:** `timber-avif detect`, `bulk`, `queue`, `clear-cache`.
 
 ## Installation
 
-1. Copy `avif.php` into your theme (e.g., `inc/avif.php`).
-2. Require it in your `functions.php`:
+1. Copy `avif.php` into your theme (e.g. `inc/avif.php`) and require it:
    ```php
    require_once get_template_directory() . '/inc/avif.php';
    ```
-3. Copy `macros.twig` into your Twig templates directory.
+2. Copy `macros.twig` into your Twig templates directory.
 
-## Twig Usage
-
-### Properties & Filters
-```twig
-{{ image.avif }}         {# AVIF URL or original #}
-{{ image.webp }}         {# WebP URL or original #}
-{{ image.best }}         {# Best available: AVIF > WebP > original #}
-
-{{ image|toavif }}       {# Lookup/Convert to AVIF #}
-{{ image|avif_src(800) }} {# Resize to 800px + Convert to AVIF #}
-```
-
-### Responsive Macro (`image`)
-The `image` macro generates a `<picture>` element with optimized sources, automatic 2x (retina) support, and intelligent size cascading.
+## Usage
 
 ```twig
-{% import "macros.twig" as macros %}
-{{ macros.image(post.thumbnail, {
-    sizes: {
-        'xs': [400],
-        'md': [800, 600],
-        'xl': [1200]
-    },
-    imgClass: 'w-full h-auto',
-    atf: true
+{% import "partial/macros.twig" as macros %}
+
+{# Full-bleed #}
+{{ macros.image(image, { sizes: '100vw', atf: true }) }}
+
+{# Half the viewport from lg, full width below, inside a padded container #}
+{{ macros.image(image, {
+    sizes: '(min-width: 64rem) 50vw, calc(100vw - 3rem)',
+    imgClass: 'h-full w-full object-cover'
 }) }}
+
+{# A small logo: cap the candidates so the set stays sane #}
+{{ macros.image(logo, { sizes: '200px', max: 400, alt: '' }) }}
 ```
 
-#### Parameters
+### Options
 
-| Option | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `sizes` | `array` | `null` | Mapping of breakpoints to `[width, height]` arrays. See **Size Cascading** below. |
-| `breakpoints` | `array` | *(Tailwind defaults)* | Custom media query values (`xs` to `2xl`). |
-| `pictureClass` | `string` | `''` | CSS class added to the `<picture>` wrapper. |
-| `imgClass` | `string` | `object-contain...` | CSS class added to the `<img>` tag. |
-| `atf` | `bool` | `false` | Above-The-Fold mode. If `true`, adds `fetchpriority="high"` and removes `loading="lazy"`. |
-| `avif` | `bool` | `true` | Enable/disable AVIF generation/lookup for this instance. |
-| `webp` | `bool` | `true` | Enable/disable WebP generation/lookup for this instance. |
+| Option | Default | What it does |
+|---|---|---|
+| `sizes` | `'100vw'` | The image's CSS width. Must be accurate, or the browser picks the wrong candidate. |
+| `widths` | canonical set | Override the candidate widths for this image only. |
+| `max` | — | Cap the candidates, for images displayed small. |
+| `ratio` | — | Crop server-side (`'16/9'` or a float). Only worth it when the original's aspect ratio is far from how it is shown — normally `object-cover` does the cropping. |
+| `atf` | `false` | `fetchpriority="high"` instead of lazy loading. |
+| `alt` | image alt/title | Pass `''` for decorative images. |
+| `pictureClass` / `imgClass` | — | Classes on the two elements. |
 
-#### Size Cascading
-The `sizes` parameter uses a "carry-forward" logic. If you only define `xs` and `lg`, the `lg` dimensions will be used for `lg`, `xl`, and `2xl` automatically.
-- `[400]`: Sets width to 400px, height is proportional.
-- `[400, 300]`: Sets width to 400px and crops/resizes height to 300px.
+`width` and `height` are always emitted, derived from the original's aspect ratio, so the CLS audit is satisfied without cropping a file.
 
-#### 2x (Retina) Support
-The macro automatically generates `1x` and `2x` descriptors for every breakpoint. To prevent quality loss, the `2x` variant is **capped** at the original image's dimensions—it will never upscale a small source image.
+### Filters and properties
 
-## Admin & Tools
-Visit **Settings > Timber AVIF** to:
-- Configure quality and conversion limits.
-- View **Statistics** (space savings and progress).
-- Run **Bulk Conversion** via AJAX.
-- Process the **Background Queue** manually.
-- Inspect **Logs** for skipped or failed conversions.
+```twig
+{{ image.avif }}   {# AVIF URL or original #}
+{{ image.webp }}   {# WebP URL or original #}
+{{ image.best }}   {# Best available #}
 
-## WP-CLI
-```bash
-wp timber-avif detect     # Show available conversion engines
-wp timber-avif bulk       # Process all Media Library images
-wp timber-avif queue      # Show/Process background queue
-wp timber-avif clear-cache # Flush capability caches
+{{ image.src|toavif }}
+{{ image|avif_src(800, 600) }}
 ```
 
-## Requirements
-- PHP 8.3+
-- WordPress 6.0+
-- Timber 2.x
-- GD (with AVIF/WebP), Imagick, or ImageMagick CLI
+## Quality
 
-## License
-MIT
+**The scales are not comparable across codecs.** AVIF 75 is already past JPEG 95 in perceived quality; pushing AVIF to 90 roughly triples the file size for a difference the eye does not find on photographs. The "never below 90" rule that makes sense for JPEG does not transfer.
+
+Defaults: AVIF 75 · WebP 90 · JPEG 95. JPEG quality applies to every resize WordPress and Timber generate, not only to uploads.
+
+## Notes
+
+- Capability detection is cached per SAPI: wp-cli, php-fpm and cron can be different PHP builds with different extensions.
+- With `DISABLE_WP_CRON`, the queue is drained during admin requests instead.

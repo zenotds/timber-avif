@@ -1,5 +1,52 @@
 # Migration Guide
 
+## From v5.3 to v6.0
+
+**Breaking: the `image()` macro changes signature.** Every call site has to be updated.
+
+### The macro
+
+`sizes` was a map of absolute pixel widths per breakpoint. It is now a **CSS `sizes` string** describing how wide the image is displayed. Heights are gone: the crop is optional and lives in `ratio`.
+
+```twig
+{# v5.3 #}
+{{ macros.image(image, {
+    sizes: { 'xs': [640, 480], 'md': [1024, 768], 'lg': [768, 640], '2xl': [1280, 900] }
+}) }}
+
+{# v6.0 #}
+{{ macros.image(image, {
+    sizes: '(min-width: 64rem) 50vw, calc(100vw - 3rem)'
+}) }}
+```
+
+To translate a recipe, ignore the old numbers and describe the layout instead: read the CSS around the call and write how wide the image actually renders. Getting this wrong is the one way to make v6 worse than v5 — a `sizes` that overstates the width makes the browser download a larger candidate than it needs, and one that understates it serves a blurry image.
+
+Where the old recipe genuinely changed the aspect ratio per breakpoint — real art direction, not just a different size — keep cropping with `ratio`, or keep a `<source media>` by hand. In practice this is rare: if `object-cover` is doing the cropping in CSS, the server-side crop was only ever costing files.
+
+### Settings
+
+- `generate_avif_uploads` and `generate_webp_uploads` are **removed**. The format to generate is the one being served, decided by the new `format_mode` (`auto` / `avif` / `webp` / `off`). Two separate flags could only contradict it.
+- `pregenerate_breakpoints` and `breakpoint_widths` now do what they always promised — in v5.3 they were saved and never read.
+- New: `pregenerate_widths` (built on upload), `jpeg_quality`, `max_upload_dimension`.
+- **AVIF quality default drops to 75.** If you had it at 80+, note that v5.3 never applied it (see below), so your files are lighter than the setting suggested.
+
+### Fixes worth knowing about
+
+- **`Imagick::setImageCompressionQuality()` has no effect on AVIF.** The coder reads `image_info->quality`, i.e. `setCompressionQuality()` — and JPEG is the exact opposite. In v5.3 every AVIF came out at libheif's internal default regardless of the setting. v6 calls both.
+- **The capability transient was shared across SAPIs.** `Imagick` can exist under php-fpm and not under wp-cli: the CLI read the engine written by the web process, called it, and every conversion failed with "Engine returned false". The cache key now includes the SAPI and the engine is revalidated before use.
+- **The failure cache masked fixed problems.** A failed conversion stayed blocked for 24h even after the cause was corrected. The key now includes quality and engine.
+- **Timber upscales silently.** A candidate wider than the original produced a file both heavier and blurrier than the original itself. Capped.
+- Animated GIFs are skipped instead of being flattened to their first frame.
+
+### Migration steps
+
+1. Replace `avif.php` and `macros.twig`.
+2. Update every `macros.image()` call: translate the `sizes` map into a CSS string.
+3. Review Settings → Timber AVIF: pick `format_mode`, check the quality values, choose which widths to pre-build on upload.
+4. **The old variants are now orphans.** Every `-WxH-c-default.*` file at a size nothing asks for any more stays on disk — in one theme that was 690 files and 35 MB. Delete them, or use Tools → Purge to drop all generated files and let them rebuild.
+5. Run `wp timber-avif bulk` if you want the library rebuilt at the new quality.
+
 ## From v4.0 to v5.3.0
 
 ### Architecture Changes
