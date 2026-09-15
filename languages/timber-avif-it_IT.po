@@ -1,8 +1,8 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Timber AVIF 6.0.0\n"
-"Report-Msgid-Bugs-To: https://github.com/zenotds/timber-avif\n"
-"POT-Creation-Date: 2026-09-15\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-09-15T15:48:20+00:00\n"
 "PO-Revision-Date: 2026-09-15\n"
 "Language: it_IT\n"
 "MIME-Version: 1.0\n"
@@ -10,236 +10,405 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
+#: avif.php:1166
+msgid ""
+"this server cannot generate AVIF. Images are served as WebP or in their "
+"original format."
+msgstr ""
+"questo server non può generare AVIF. Le immagini vengono servite in WebP o "
+"nel formato originale."
 
-msgid "this server cannot generate AVIF. Images are served as WebP or in their original format."
-msgstr "questo server non può generare AVIF. Le immagini vengono servite in WebP o nel formato originale."
-
+#: avif.php:1177 avif.php:1458
 msgid "Not available"
 msgstr "Non disponibile"
 
+#: avif.php:1249
 msgid "Served format"
 msgstr "Formato servito"
 
+#: avif.php:1249
 msgid "Original"
 msgstr "Originale"
 
+#: avif.php:1250
 msgid "Engine"
 msgstr "Motore"
 
+#: avif.php:1251
 msgid "Quality"
 msgstr "Qualità"
 
+#: avif.php:1252 avif.php:1345
 msgid "Widths"
 msgstr "Larghezze"
 
+#: avif.php:1254
+#, php-format
 msgid "%1$d defined, %2$d built on upload"
 msgstr "%1$d definite, %2$d generate al caricamento"
 
+#: avif.php:1255
+#, php-format
 msgid "%d defined, built on first request"
 msgstr "%d definite, generate alla prima visita"
 
+#: avif.php:1256 avif.php:1502
 msgid "Queue"
 msgstr "Coda"
 
+#: avif.php:1256
+#, php-format
 msgid "%d pending"
 msgid_plural "%d pending"
 msgstr[0] "%d in attesa"
 msgstr[1] "%d in attesa"
 
+#: avif.php:1256
 msgid "Empty"
 msgstr "Vuota"
 
-msgid "Queued images are converted a few at a time while you work in the admin."
-msgstr "Le immagini in coda vengono convertite poco per volta mentre lavori nell'amministrazione."
+#: avif.php:1271
+msgid ""
+"Queued images are converted a few at a time while you work in the admin."
+msgstr ""
+"Le immagini in coda vengono convertite poco per volta mentre lavori "
+"nell'amministrazione."
 
+#: avif.php:1275
 msgid "Settings"
 msgstr "Impostazioni"
 
+#: avif.php:1276
 msgid "Tools"
 msgstr "Strumenti"
 
+#: avif.php:1277
 msgid "Statistics"
 msgstr "Statistiche"
 
+#: avif.php:1278
 msgid "Log"
 msgstr "Registro"
 
+#: avif.php:1307
 msgid "Format and quality"
 msgstr "Formato e qualità"
 
+#: avif.php:1310 avif.php:1567
 msgid "Format"
 msgstr "Formato"
 
+#: avif.php:1313
 msgid "Auto"
 msgstr "Auto"
 
+#: avif.php:1313
 msgid "None"
 msgstr "Nessuno"
 
+#: avif.php:1317
 msgid "Served instead of the original, which stays as a fallback."
 msgstr "Servito al posto dell'originale, che resta come riserva."
 
-msgid "Quality scales are not comparable across formats: AVIF 75 matches JPEG 95."
-msgstr "Le scale non sono confrontabili fra formati: AVIF 75 equivale a JPEG 95."
+#: avif.php:1341
+msgid ""
+"Quality scales are not comparable across formats: AVIF 75 matches JPEG 95."
+msgstr ""
+"Le scale non sono confrontabili fra formati: AVIF 75 equivale a JPEG 95."
 
-msgid "The sizes every image is generated in. The browser picks the one that fits the screen."
-msgstr "Le misure in cui ogni immagine viene generata. Il browser sceglie da sé la più adatta allo schermo."
+#: avif.php:1346
+msgid ""
+"The sizes every image is generated in. The browser picks the one that fits "
+"the screen."
+msgstr ""
+"Le misure in cui ogni immagine viene generata. Il browser sceglie da sé la "
+"più adatta allo schermo."
 
+#: avif.php:1349
 msgid "Sizes"
 msgstr "Misure"
 
+#: avif.php:1352
 msgid "Comma-separated. Each size is one more file per image."
 msgstr "Separate da virgola. Ogni misura è un file in più per immagine."
 
+#: avif.php:1357
 msgid "On upload"
 msgstr "Al caricamento"
 
-msgid "Ticked sizes are built right away. The rest on the first visit to a page that uses them."
-msgstr "Le misure spuntate si generano subito. Le altre alla prima visita della pagina che le usa."
+#: avif.php:1361
+msgid ""
+"Ticked sizes are built right away. The rest on the first visit to a page "
+"that uses them."
+msgstr ""
+"Le misure spuntate si generano subito. Le altre alla prima visita della "
+"pagina che le usa."
 
+#: avif.php:1366
 msgid "Enabled"
 msgstr "Attivo"
 
+#: avif.php:1373
 msgid "Limits"
 msgstr "Limiti"
 
+#: avif.php:1376
 msgid "Upload"
 msgstr "Caricamento"
 
+#: avif.php:1379
 msgid "Wider images are scaled down to this size on arrival."
 msgstr "Le immagini più larghe vengono ridotte a questa misura."
 
+#: avif.php:1384
 msgid "Conversion"
 msgstr "Conversione"
 
-msgid "Past either value the image is left as it is, to avoid exhausting server memory. This also covers files already in the library, which can exceed the upload limit."
-msgstr "Oltre questi valori l'immagine viene lasciata com'è, per non esaurire la memoria del server. Vale anche per i file già in libreria, che possono superare il limite di caricamento."
+#: avif.php:1388
+msgid ""
+"Past either value the image is left as it is, to avoid exhausting server "
+"memory. This also covers files already in the library, which can exceed the "
+"upload limit."
+msgstr ""
+"Oltre questi valori l'immagine viene lasciata com'è, per non esaurire la "
+"memoria del server. Vale anche per i file già in libreria, che possono "
+"superare il limite di caricamento."
 
+#: avif.php:1393
 msgid "Per page"
 msgstr "Per pagina"
 
+#: avif.php:1395
 msgid "images"
 msgstr "immagini"
 
-msgid "How many to convert while the visitor waits. The rest continue in the background."
-msgstr "Quante convertirne mentre il visitatore attende. Le altre proseguono in background."
+#: avif.php:1396
+msgid ""
+"How many to convert while the visitor waits. The rest continue in the "
+"background."
+msgstr ""
+"Quante convertirne mentre il visitatore attende. Le altre proseguono in "
+"background."
 
+#: avif.php:1401
 msgid "Discard"
 msgstr "Scarto"
 
+#: avif.php:1407
 msgid "Keep the converted file only if it weighs less than the original"
 msgstr "Tieni il file convertito solo se pesa meno dell'originale"
 
+#: avif.php:1413
 msgid "Save"
 msgstr "Salva"
 
+#: avif.php:1466
 msgid "Convert everything"
 msgstr "Converti tutto"
 
-msgid "Generate the modern format for every image in the library. Already converted ones are skipped."
-msgstr "Genera il formato moderno per tutte le immagini della libreria. Quelle già convertite vengono saltate."
+#: avif.php:1467
+msgid ""
+"Generate the modern format for every image in the library. Already converted "
+"ones are skipped."
+msgstr ""
+"Genera il formato moderno per tutte le immagini della libreria. Quelle già "
+"convertite vengono saltate."
 
+#: avif.php:1468 avif.php:1847
 msgid "Start"
 msgstr "Avvia"
 
+#: avif.php:1480
 msgid "Delete conversions"
 msgstr "Elimina le conversioni"
 
-msgid "Deletes every generated AVIF and WebP file. Originals are untouched and files rebuild on first visit. Use it after a quality change, to realign the library."
-msgstr "Cancella tutti i file AVIF e WebP generati. Gli originali non vengono toccati e i file si rigenerano alla prima visita. Serve dopo un cambio di qualità, per riallineare la libreria."
+#: avif.php:1481
+msgid ""
+"Deletes every generated AVIF and WebP file. Originals are untouched and "
+"files rebuild on first visit. Use it after a quality change, to realign the "
+"library."
+msgstr ""
+"Cancella tutti i file AVIF e WebP generati. Gli originali non vengono "
+"toccati e i file si rigenerano alla prima visita. Serve dopo un cambio di "
+"qualità, per riallineare la libreria."
 
+#: avif.php:1487
 msgid "Delete every generated AVIF and WebP file?"
 msgstr "Eliminare tutti i file AVIF e WebP generati?"
 
+#: avif.php:1487
 msgid "Delete"
 msgstr "Elimina"
 
+#: avif.php:1491
 msgid "Clear cache"
 msgstr "Svuota la cache"
 
-msgid "Detect the conversion engines available on this server again, and clear the memory of failed attempts."
-msgstr "Rileva di nuovo i motori di conversione disponibili sul server e azzera la memoria dei tentativi falliti."
+#: avif.php:1492
+msgid ""
+"Detect the conversion engines available on this server again, and clear the "
+"memory of failed attempts."
+msgstr ""
+"Rileva di nuovo i motori di conversione disponibili sul server e azzera la "
+"memoria dei tentativi falliti."
 
+#: avif.php:1498
 msgid "Clear"
 msgstr "Svuota"
 
+#: avif.php:1503
 msgid "images waiting to be converted."
 msgstr "immagini in attesa di conversione."
 
+#: avif.php:1504 avif.php:1875
 msgid "Process now"
 msgstr "Elabora ora"
 
+#: avif.php:1540
 msgid "All"
 msgstr "Tutte"
 
+#: avif.php:1540
 msgid "Skipped"
 msgstr "Saltate"
 
+#: avif.php:1540
 msgid "Failed"
 msgstr "Non riuscite"
 
+#: avif.php:1540
 msgid "Errors"
 msgstr "Errori"
 
+#: avif.php:1554
 msgid "Clear the log?"
 msgstr "Svuotare il registro?"
 
+#: avif.php:1554
 msgid "Clear log"
 msgstr "Svuota il registro"
 
+#: avif.php:1560
 msgid "No entries"
 msgstr "Nessuna voce"
 
+#: avif.php:1565
 msgid "Time"
 msgstr "Ora"
 
+#: avif.php:1568
 msgid "Result"
 msgstr "Esito"
 
+#: avif.php:1569
 msgid "Reason"
 msgstr "Motivo"
 
+#: avif.php:1593
 msgid "Showing"
 msgstr "Ultime"
 
+#: avif.php:1612
 msgid "Images"
 msgstr "Immagini"
 
+#: avif.php:1616
+#, php-format
 msgid "Converted to %s"
 msgstr "Convertite in %s"
 
+#: avif.php:1617
+#, php-format
 msgid "%d%% of the library"
 msgstr "%d%% della libreria"
 
+#: avif.php:1622
 msgid "Saved"
 msgstr "Risparmio"
 
+#: avif.php:1623
+#, php-format
 msgid "%1$d%% of %2$s"
 msgstr "%1$d%% su %2$s"
 
-msgid "The %d images left out are those where the modern format would weigh more than the original: it happens on flat graphics and icons, and they are left as they were."
-msgstr "Le %d immagini non convertite sono quelle in cui il formato moderno peserebbe più dell'originale: succede su grafiche piatte e icone, e vengono lasciate com'erano."
+#: avif.php:1631
+#, php-format
+msgid ""
+"The %d images left out are those where the modern format would weigh more "
+"than the original: it happens on flat graphics and icons, and they are left "
+"as they were."
+msgstr ""
+"Le %d immagini non convertite sono quelle in cui il formato moderno "
+"peserebbe più dell'originale: succede su grafiche piatte e icone, e vengono "
+"lasciate com'erano."
 
-msgid "The library also holds %1$d %2$s files (%3$s), generated when a different format was being served. Remove them from Tools &rarr; Delete conversions."
-msgstr "In libreria ci sono anche %1$d file %2$s (%3$s), generati quando il formato servito era un altro. Si eliminano da Strumenti &rarr; Elimina le conversioni."
+#: avif.php:1640
+#, php-format
+msgid ""
+"The library also holds %1$d %2$s files (%3$s), generated when a different "
+"format was being served. Remove them from Tools &rarr; Delete conversions."
+msgstr ""
+"In libreria ci sono anche %1$d file %2$s (%3$s), generati quando il formato "
+"servito era un altro. Si eliminano da Strumenti &rarr; Elimina le "
+"conversioni."
 
-msgid "Updated every 5 minutes. The count covers original images, not the individual sizes generated from them."
-msgstr "Aggiornato ogni 5 minuti. Il conteggio riguarda le immagini originali, non le singole misure generate."
+#: avif.php:1648
+msgid ""
+"Updated every 5 minutes. The count covers original images, not the "
+"individual sizes generated from them."
+msgstr ""
+"Aggiornato ogni 5 minuti. Il conteggio riguarda le immagini originali, non "
+"le singole misure generate."
 
+#: avif.php:1681
 msgid "Settings saved."
 msgstr "Impostazioni salvate."
 
+#: avif.php:1682
 msgid "Conversion complete."
 msgstr "Conversione completata."
 
+#: avif.php:1683
 msgid "Cache cleared."
 msgstr "Cache svuotata."
 
+#: avif.php:1684
+#, php-format
 msgid "%d files deleted."
 msgstr "%d file eliminati."
 
+#: avif.php:1685
 msgid "Queue processed."
 msgstr "Coda elaborata."
 
+#: avif.php:1686
 msgid "Log cleared."
 msgstr "Registro svuotato."
+
+#: avif.php:1832
+msgid "Stopping…"
+msgstr "Interruzione…"
+
+#: avif.php:1834
+msgid "Cancel"
+msgstr "Annulla"
+
+#: avif.php:1835
+msgid "Starting…"
+msgstr "Avvio…"
+
+#: avif.php:1839
+msgid "Cancelled at"
+msgstr "Annullato a"
+
+#: avif.php:1844
+msgid "images processed."
+msgstr "immagini elaborate."
+
+#: avif.php:1859
+msgid "Processing…"
+msgstr "Elaborazione…"
+
+#: avif.php:1871
+msgid "conversions complete."
+msgstr "conversioni completate."

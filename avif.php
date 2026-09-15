@@ -1829,22 +1829,22 @@ class TimberAVIF {
 					var btn=$('#tavif-bulk-start'),wrap=$('#tavif-bulk-progress'),bar=$('#tavif-bulk-bar'),count=$('#tavif-bulk-count'),status=$('#tavif-bulk-status');
 					if(!btn.length)return;
 					btn.on('click',function(){
-						if(running){cancelled=true;btn.prop('disabled',true).text('<?php echo esc_js(__('Stopping…', 'timber-avif')); ?>');return;}
+						if(running){cancelled=true;btn.prop('disabled',true).text('" . esc_js(__('Stopping…', 'timber-avif')) . "');return;}
 						running=true;cancelled=false;
-						btn.text('<?php echo esc_js(__('Cancel', 'timber-avif')); ?>').removeClass('button-primary').addClass('button-secondary');
-						wrap.show();bar.css('width','0%');count.text('0 / \u2026');status.text('<?php echo esc_js(__('Starting…', 'timber-avif')); ?>');
+						btn.text('" . esc_js(__('Cancel', 'timber-avif')) . "').removeClass('button-primary').addClass('button-secondary');
+						wrap.show();bar.css('width','0%');count.text('0 / \u2026');status.text('" . esc_js(__('Starting…', 'timber-avif')) . "');
 						run(0);
 					});
 					function run(offset){
-						if(cancelled){done('<?php echo esc_js(__('Cancelled at', 'timber-avif')); ?> '+offset);return;}
+						if(cancelled){done('" . esc_js(__('Cancelled at', 'timber-avif')) . " '+offset);return;}
 						$.post(url,{action:'timber_avif_bulk_batch',nonce:'" . esc_js($bulk_nonce) . "',offset:offset,batch_size:5},function(r){
 							if(!r.success){done('Error: '+(r.data||'unknown'));return;}
 							var d=r.data,pct=d.total>0?Math.round(d.processed/d.total*100):0;
 							bar.css('width',pct+'%');count.text(d.processed+' / '+d.total);status.text(pct+'%');
-							if(d.done)done(d.processed+' <?php echo esc_js(__('images processed.', 'timber-avif')); ?>');else run(d.processed);
+							if(d.done)done(d.processed+' " . esc_js(__('images processed.', 'timber-avif')) . "');else run(d.processed);
 						}).fail(function(){done('Request failed.');});
 					}
-					function done(msg){running=false;cancelled=false;btn.prop('disabled',false).text('<?php echo esc_js(__('Start', 'timber-avif')); ?>').removeClass('button-secondary').addClass('button-primary');status.text(msg);bar.css('width','100%');}
+					function done(msg){running=false;cancelled=false;btn.prop('disabled',false).text('" . esc_js(__('Start', 'timber-avif')) . "').removeClass('button-secondary').addClass('button-primary');status.text(msg);bar.css('width','100%');}
 				})();
 
 				/* ── Process Queue ── */
@@ -1856,7 +1856,7 @@ class TimberAVIF {
 					btn.on('click',function(){
 						if(running||total===0)return;
 						running=true;
-						btn.prop('disabled',true).text('<?php echo esc_js(__('Processing…', 'timber-avif')); ?>');
+						btn.prop('disabled',true).text('" . esc_js(__('Processing…', 'timber-avif')) . "');
 						wrap.show();bar.css('width','0%');countEl.text('0');status.text('Avvio\u2026');
 						var processed=0;
 						run();
@@ -1868,11 +1868,11 @@ class TimberAVIF {
 								var pct=total>0?Math.min(100,Math.round(processed/total*100)):100;
 								bar.css('width',pct+'%');countEl.text(processed+' / '+total);remaining.text(d.remaining);
 								status.text(d.remaining+' remaining\u2026');
-								if(d.done){done(processed+' <?php echo esc_js(__('conversions complete.', 'timber-avif')); ?>');}else{run();}
+								if(d.done){done(processed+' " . esc_js(__('conversions complete.', 'timber-avif')) . "');}else{run();}
 							}).fail(function(){done('Request failed.');});
 						}
 					});
-					function done(msg){running=false;btn.prop('disabled',false).text('<?php echo esc_js(__('Process now', 'timber-avif')); ?>');status.text(msg);bar.css('width','100%');remaining.text('0');}
+					function done(msg){running=false;btn.prop('disabled',false).text('" . esc_js(__('Process now', 'timber-avif')) . "');status.text(msg);bar.css('width','100%');remaining.text('0');}
 				})();
 			});
 		");
@@ -1912,8 +1912,7 @@ class TimberAVIF {
 	}
 
 	public static function clear_all_caches(): void {
-		delete_transient('timber_avif_cap_avif');
-		delete_transient('timber_avif_cap_webp');
+		self::flush_capability_transients();
 		delete_transient('timber_avif_statistics');
 		self::flush_failure_transients();
 		self::$conversion_methods = ['avif' => null, 'webp' => null];
@@ -1925,6 +1924,23 @@ class TimberAVIF {
 	/**
 	 * Flush all tavif_fail_* transients so failed/skipped conversions can be retried.
 	 */
+	/**
+	 * Flush the capability cache for every SAPI, not just this one.
+	 *
+	 * The key carries the SAPI (see detect_capabilities), so clearing only the
+	 * current runtime would leave php-fpm's detection in place when this runs
+	 * under wp-cli — exactly the mismatch the suffix exists to prevent.
+	 */
+	private static function flush_capability_transients(): void {
+		global $wpdb;
+		$wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timber_avif_cap_%' OR option_name LIKE '_transient_timeout_timber_avif_cap_%'");
+
+		// With an external object cache transients never reach the options table,
+		// so at least retire the keys this runtime owns.
+		delete_transient('timber_avif_cap_avif_' . self::runtime_key());
+		delete_transient('timber_avif_cap_webp_' . self::runtime_key());
+	}
+
 	private static function flush_failure_transients(): void {
 		global $wpdb;
 		$wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_tavif_fail_%' OR option_name LIKE '_transient_timeout_tavif_fail_%'");
