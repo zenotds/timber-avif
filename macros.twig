@@ -1,6 +1,7 @@
 {# Responsive image: <picture> with a w-descriptor srcset and a single <source> for the modern format (see avif.php) #}
 {# `sizes` is the image's CSS width, not a list of pixel values: it must be accurate or the browser picks the wrong candidate #}
 {# `ratio` crops server-side, and is only worth it where the original's aspect ratio is far from how it is displayed: normally object-cover does the cropping #}
+{# `disclosure` picks the corner for the AI Act label, for images flagged as AI generated or modified: pass the corner nothing else occupies #}
 {% macro image(image, options = {}) %}
 	{% set config = {
 		sizes: '100vw',
@@ -10,16 +11,20 @@
 		pictureClass: '',
 		imgClass: 'object-cover object-center h-full w-full mx-auto',
 		atf: false,
-		alt: null
+		alt: null,
+		disclosure: null
 	}|merge(options) %}
 
-	{% set data = image_sources(image, { widths: config.widths, max: config.max, ratio: config.ratio }) %}
+	{% set data = image_sources(image, { widths: config.widths, max: config.max, ratio: config.ratio, disclosure: config.disclosure }) %}
 
 	{% if data.ok %}
 		{% set altText = config.alt ?? (image.alt is defined and image.alt ? image.alt : (image.title is defined ? image.title : '')) %}
+		{# The label cannot go inside <picture>, which admits only <source> and <img>, so both are wrapped. Emitted only for a flagged image: every other image keeps the markup it had. #}
+		{% if data.disclosure %}<span class="bizen-ai-media bizen-ai-media--fill">{% endif %}
 		<picture class="picture {{ config.pictureClass }}">
 			{% if data.modern %}<source type="{{ data.modern.type }}" srcset="{{ data.modern.srcset }}" sizes="{{ config.sizes }}">{% endif %}
 			<img{% if config.imgClass %} class="{{ config.imgClass }}"{% endif %} src="{{ data.src }}"{% if data.srcset %} srcset="{{ data.srcset }}" sizes="{{ config.sizes }}"{% endif %} alt="{{ altText }}"{% if config.atf %} fetchpriority="high"{% else %} loading="lazy" decoding="async"{% endif %}{% if data.width %} width="{{ data.width }}"{% endif %}{% if data.height %} height="{{ data.height }}"{% endif %}>
 		</picture>
+		{% if data.disclosure %}{{ data.disclosure|raw }}</span>{% endif %}
 	{% endif %}
 {% endmacro %}

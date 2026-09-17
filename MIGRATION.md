@@ -1,5 +1,25 @@
 # Migration Guide
 
+## From v6.0 to v6.1
+
+**Not breaking.** No call site has to change, and any image not flagged as AI generated or modified renders byte-for-byte as it did in v6.0.
+
+### What is new
+
+`image_sources()` returns one more key, `disclosure`, and the `image()` macro takes one more option of the same name. Both stay inert until something implements the `bizen_ai_disclosure_badge` filter — see [AI disclosure](README.md#ai-disclosure).
+
+### Migration steps
+
+1. Replace `avif.php` and `macros.twig`. **Both are copies living inside each theme**, so this is once per theme: updating the repo propagates nothing on its own.
+2. Nothing else is required. Stop here unless the site publishes AI-generated or AI-modified imagery.
+3. If it does, install the `ai-disclosure` module, work through Media → AI Disclosure, then add `disclosure: '<corner>'` to the `macros.image()` calls whose composition covers the bottom right — heroes with an overlay card, anything with a caption or a gradient scrim at the foot of the image.
+
+### If you forked the macro
+
+Themes carrying a customised `macros.twig` need three additions by hand: `disclosure: null` in the config map, `disclosure: config.disclosure` in the `image_sources()` call, and the conditional wrapper around `<picture>`.
+
+The label cannot go *inside* `<picture>`: its content model admits only `<source>`, `<img>` and script-supporting elements, and the browser will hoist anything else out of it.
+
 ## From v5.3 to v6.0
 
 **Breaking: the `image()` macro changes signature.** Every call site has to be updated.

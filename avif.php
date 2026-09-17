@@ -2,7 +2,7 @@
 /**
  * Timber AVIF Converter
  *
- * @version 6.0.0
+ * @version 6.1.0
  * @author Francesco Zeno Selva
  * @link https://github.com/zenotds/timber-avif
  *
@@ -36,6 +36,12 @@
  *   wp timber-avif bulk          — convert all media library images
  *   wp timber-avif queue         — show/process background queue
  *   wp timber-avif clear-cache   — flush capability caches
+ *
+ * Integrations:
+ *   bizen_ai_disclosure_badge    — filter asked for an AI Act art. 50(4) label to
+ *                                  sit over the image. Nothing here implements it:
+ *                                  when no plugin answers it returns '' and the
+ *                                  macro emits the markup it always emitted.
  */
 
 use Timber\Image;
@@ -57,7 +63,7 @@ if (class_exists('Timber\\Image') && !class_exists('AVIFImage')) {
 }
 
 class TimberAVIF {
-	const VERSION     = '6.0.0';
+	const VERSION     = '6.1.0';
 	const OPTION_KEY  = 'timber_avif_settings';
 	const QUEUE_KEY   = 'timber_avif_queue';
 	const LOG_KEY     = 'timber_avif_log';
@@ -378,16 +384,18 @@ class TimberAVIF {
 	/**
 	 * Data for a responsive <picture>. See the image() macro in partial/macros.twig.
 	 *
-	 * $opts: widths (array), max (int), ratio (float|'16/9')
+	 * $opts: widths (array), max (int), ratio (float|'16/9'), disclosure (string)
 	 */
 	public static function image_sources($src, array $opts = []): array {
-		$empty = ['ok' => false, 'src' => '', 'srcset' => '', 'width' => null, 'height' => null, 'modern' => null];
+		$empty = ['ok' => false, 'src' => '', 'srcset' => '', 'width' => null, 'height' => null, 'modern' => null, 'disclosure' => ''];
 
 		$url = self::extract_url($src);
 		if (!$url) return $empty;
 
+		$disclosure = self::disclosure($src, (string) ($opts['disclosure'] ?? ''));
+
 		[$ow, $oh] = self::source_dimensions($src, $url);
-		if (!$ow) return array_merge($empty, ['ok' => true, 'src' => $url]);
+		if (!$ow) return array_merge($empty, ['ok' => true, 'src' => $url, 'disclosure' => $disclosure]);
 
 		$ratio = self::parse_ratio($opts['ratio'] ?? null) ?: ($oh ? $ow / $oh : null);
 
@@ -421,7 +429,32 @@ class TimberAVIF {
 			'width'  => $base,
 			'height' => $ratio ? (int) round($base / $ratio) : null,
 			'modern' => $modern_set ? ['type' => 'image/' . $modern, 'srcset' => implode(', ', $modern_set)] : null,
+			'disclosure' => $disclosure,
 		];
+	}
+
+	/**
+	 * AI Act art. 50(4) disclosure markup for this image, or '' when it needs none.
+	 *
+	 * Answered by whoever implements the filter — the ai-disclosure module in Bizen
+	 * Toolkit — so this file carries no dependency on it: with nothing listening the
+	 * string stays empty and the macro skips the wrapper entirely.
+	 *
+	 * The badge cannot live inside <picture>, whose content model admits only
+	 * <source>, <img> and script-supporting elements, so the macro wraps both.
+	 *
+	 * $position is one of bottom-right (the default), bottom-left, top-right or
+	 * top-left. Which corner is a property of the composition rather than of the
+	 * file — the same photo is clear in the corner of a card and buried under an
+	 * overlay panel in a hero — so the template decides, not the image.
+	 */
+	private static function disclosure($src, string $position): string {
+		if (!$src instanceof \Timber\Image) return '';
+
+		$id = (int) ($src->id ?? 0);
+		if ($id < 1) return '';
+
+		return (string) apply_filters('bizen_ai_disclosure_badge', '', $id, $position);
 	}
 
 	private static function source_dimensions($src, string $url): array {
