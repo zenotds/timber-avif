@@ -2,7 +2,7 @@
 /**
  * Timber AVIF Converter
  *
- * @version 6.1.0
+ * @version 6.1.2
  * @author Francesco Zeno Selva
  * @link https://github.com/zenotds/timber-avif
  *
@@ -15,7 +15,9 @@
  *  - Fast file_exists check with per-request static cache
  *  - Missing variants: converted inline up to a budget, then after the response,
  *    then in a queue drained by cron or by admin requests
- *  - Failed conversions are remembered for 24h, keyed to quality and engine
+ *  - Failed conversions are remembered for 24h, keyed to quality and engine. An
+ *    output that comes out heavier than its source is a verdict rather than a fault,
+ *    so it is remembered until quality or engine changes
  *  - Never upscales past the original width
  *
  * Twig:
@@ -63,7 +65,7 @@ if (class_exists('Timber\\Image') && !class_exists('AVIFImage')) {
 }
 
 class TimberAVIF {
-	const VERSION     = '6.1.0';
+	const VERSION     = '6.1.2';
 	const OPTION_KEY  = 'timber_avif_settings';
 	const QUEUE_KEY   = 'timber_avif_queue';
 	const LOG_KEY     = 'timber_avif_log';
@@ -72,9 +74,16 @@ class TimberAVIF {
 	const CRON_CLEANUP_HOOK = 'timber_avif_cleanup_stale_locks';
 	const STALE_LOCK_TIMEOUT = 300;
 
+	// Sources worth converting. WebP belongs here because a library imported from an
+	// older site can already hold WebP originals: without it every recovery tool (bulk,
+	// CLI, statistics) skipped them and the front end kept converting them inline on
+	// every request. Under format_mode 'webp' sibling_path() returns null for them,
+	// source and destination being the same file, so they are simply a no-op.
+	const SOURCE_MIMES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
 	// Defaults
-	// Quality scales are not comparable across codecs: AVIF 65 already sits above JPEG 95 in perceived quality.
-	const DEFAULT_AVIF_QUALITY = 65;
+	// Quality scales are not comparable across codecs: AVIF 75 already sits above JPEG 95 in perceived quality.
+	const DEFAULT_AVIF_QUALITY = 75;
 	const DEFAULT_WEBP_QUALITY = 90;
 	const DEFAULT_JPEG_QUALITY = 95;
 	const MAX_IMAGE_DIMENSION  = 4096;
@@ -95,6 +104,26 @@ class TimberAVIF {
 
 	// Failed conversions are remembered for this long to avoid retrying.
 	const FAILURE_TTL = DAY_IN_SECONDS;
+
+	// "The output weighs more than the source" is not a transient fault like a busy lock
+	// or a timeout: for a given quality + engine pair the answer never changes. Both are
+	// already in the transient key, so this verdict retires itself the moment either one
+	// does, and a year in between is as good as permanent. Every other failure keeps
+	// FAILURE_TTL, because those really can fix themselves overnight.
+	const OVERSIZE_TTL = YEAR_IN_SECONDS;
+
+	// How much heavier than its source a conversion may be before it is thrown away.
+	// Three bars, each owning a range of file sizes: the floor decides below ~40 KB, the
+	// ratio between ~40 and ~500 KB, the hard limit above that.
+	//
+	// The floor is what says "a few KB never costs us the better format", so it is sized
+	// against a whole page rather than one image: it is paid once per image on screen,
+	// and a category page carrying 28 of them turns a 10 KB floor into 280 KB of slack.
+	// It also has to stay small enough that a 3 KB icon ballooning to 12 KB — AVIF is bad
+	// at tiny flat graphics — is still caught by the ratio instead of waved through.
+	const OVERSIZE_MIN_RATIO  = 0.10;   // 10% of the source
+	const OVERSIZE_MIN_BYTES  = 4096;   // 4 KB
+	const OVERSIZE_HARD_LIMIT = 51200;  // 50 KB
 
 	// Runtime state
 	private static array $settings = [];
@@ -516,7 +545,7 @@ class TimberAVIF {
 			return $url;
 		}
 
-		// 3b. Skip if this conversion previously failed (cached for 24h)
+		// 3b. Skip if this conversion previously failed, or was judged not worth keeping
 		if (self::is_failed($sibling, $format)) {
 			self::$exists_cache[$sibling] = false;
 			return $url;
@@ -527,7 +556,10 @@ class TimberAVIF {
 			self::$inline_budget--;
 			$success = self::convert_file($path, $format);
 			self::$exists_cache[$sibling] = $success;
-			if (!$success) {
+			// Only for failures convert_file did not already record: it owns the verdict
+			// when it has one, and this catch-all would otherwise knock an OVERSIZE_TTL
+			// entry back down to 24h on the very path that hurts most.
+			if (!$success && !self::is_failed($sibling, $format)) {
 				self::remember_failure($sibling, $format);
 			}
 			return $success ? self::path_to_url($sibling) : $url;
@@ -807,13 +839,20 @@ class TimberAVIF {
 					@unlink($dest);
 					$ok = false;
 					self::add_log($source_path, $format, 'failed', 'Output file invalid (corrupt header)');
-				} elseif (self::setting('only_if_smaller', true) && filesize($dest) >= filesize($source_path)) {
-					$orig_kb = round(filesize($source_path) / 1024);
-					$dest_kb = round(filesize($dest) / 1024);
-					@unlink($dest);
-					$ok = false;
-					$skipped_larger = true;
-					self::add_log($source_path, $format, 'skipped', sprintf('Converted file larger than original (%d KB → %d KB)', $orig_kb, $dest_kb));
+				} else {
+					$source_bytes = filesize($source_path);
+					$dest_bytes   = filesize($dest);
+					if (self::setting('only_if_smaller', true) && self::exceeds_size_tolerance($source_bytes, $dest_bytes)) {
+						@unlink($dest);
+						$ok = false;
+						$skipped_larger = true;
+						self::add_log($source_path, $format, 'skipped', sprintf(
+							'Converted file larger than original (%d KB → %d KB, +%d%%)',
+							round($source_bytes / 1024),
+							round($dest_bytes / 1024),
+							$source_bytes > 0 ? round(($dest_bytes - $source_bytes) / $source_bytes * 100) : 0
+						));
+					}
 				}
 			} else {
 				self::add_log($source_path, $format, 'failed', 'Engine returned false (' . $method . ')');
@@ -831,7 +870,8 @@ class TimberAVIF {
 		if ($ok) {
 			self::clear_failure($dest, $format);
 		} elseif ($skipped_larger) {
-			self::remember_failure($dest, $format);
+			// Deterministic for this quality + engine, so it is not re-encoded tomorrow.
+			self::remember_failure($dest, $format, self::OVERSIZE_TTL);
 		}
 
 		return $ok;
@@ -1047,9 +1087,30 @@ class TimberAVIF {
 	}
 
 	/**
-	 * Remember a failed conversion so we don't retry for 24h.
-	 * Stolen from Codex's solution — smart optimization.
+	 * Is the converted file heavy enough, next to its source, to be worth throwing away?
+	 *
+	 * A plain `dest >= source` discards perfectly good AVIFs. On an already-compressed
+	 * WebP source the encoder routinely lands a few hundred bytes over, and a 5 KB → 5 KB
+	 * swap is still worth taking for the better format. What is worth discarding is weight
+	 * the visitor actually pays for, so the excess has to clear a relative *and* an
+	 * absolute bar — unless it is big enough on its own to matter whatever the ratio.
+	 *
+	 *     3 KB   →   3 KB  (+0 KB)     keep
+	 *    64 KB   →  69 KB  (+5 KB)     keep     — +8%, under the ratio
+	 *     3 KB   →  12 KB  (+9 KB)     discard  — +300%: a flat icon AVIF handles badly
+	 *    85 KB   →  97 KB  (+12 KB)    discard  — over the floor and over 10%
+	 *   389 KB   → 431 KB  (+42 KB)    discard
+	 *     5 MB   → 5.1 MB  (+100 KB)   discard  — over the hard limit, at just +2%
 	 */
+	private static function exceeds_size_tolerance(int $source_bytes, int $dest_bytes): bool {
+		$excess = $dest_bytes - $source_bytes;
+		if ($excess <= 0) return false;
+		if ($excess > self::OVERSIZE_HARD_LIMIT) return true;
+
+		return $excess > self::OVERSIZE_MIN_BYTES
+			&& $excess > $source_bytes * self::OVERSIZE_MIN_RATIO;
+	}
+
 	/**
 	 * Quality and engine fingerprint, so changing settings retires stale failures.
 	 */
@@ -1059,13 +1120,18 @@ class TimberAVIF {
 			self::setting($format . '_quality'),
 			self::$conversion_methods[$format] ?? '',
 			self::runtime_key(),
+			self::failure_generation(),
 			$dest_path,
 		]);
 		return 'tavif_fail_' . md5($fingerprint);
 	}
 
-	private static function remember_failure(string $dest_path, string $format): void {
-		set_transient(self::failure_key($dest_path, $format), 1, self::FAILURE_TTL);
+	/**
+	 * Remember a conversion not worth retrying. Transient failures get FAILURE_TTL;
+	 * a verdict that cannot change on its own passes its own, longer TTL.
+	 */
+	private static function remember_failure(string $dest_path, string $format, ?int $ttl = null): void {
+		set_transient(self::failure_key($dest_path, $format), 1, $ttl ?? self::FAILURE_TTL);
 	}
 
 	private static function is_failed(string $dest_path, string $format): bool {
@@ -1437,8 +1503,9 @@ class TimberAVIF {
 							<input type="hidden" name="only_if_smaller" value="0" />
 							<input type="checkbox" name="only_if_smaller" value="1" <?php checked($s['only_if_smaller']); ?> />
 							<span class="slider"></span>
-							<span class="toggle-label"><?php esc_html_e('Keep the converted file only if it weighs less than the original', 'timber-avif'); ?></span>
+							<span class="toggle-label"><?php esc_html_e('Discard the converted file when it weighs meaningfully more than the original', 'timber-avif'); ?></span>
 						</label>
+						<p class="tavif-hint"><?php esc_html_e('A few KB over is kept — the better format is worth it. Discarded past +10% and +4 KB, or past +50 KB whatever the ratio.', 'timber-avif'); ?></p>
 					</div>
 				</div>
 			</div>
@@ -1661,7 +1728,7 @@ class TimberAVIF {
 		<?php if ($done < $total) : ?>
 			<p class="description" style="margin-bottom:20px;">
 				<?php printf(
-					esc_html__('The %d images left out are those where the modern format would weigh more than the original: it happens on flat graphics and icons, and they are left as they were.', 'timber-avif'),
+					esc_html__('The %d images left out are still waiting, or are ones where the modern format would weigh meaningfully more than the original: it happens on flat graphics, on icons, and on files already stored in the format being served. They are left as they were.', 'timber-avif'),
 					(int) ($total - $done)
 				); ?>
 			</p>
@@ -1686,17 +1753,19 @@ class TimberAVIF {
 		$cached = get_transient('timber_avif_statistics');
 		if ($cached !== false) return $cached;
 
-		$ids = get_posts(['post_type' => 'attachment', 'post_mime_type' => ['image/jpeg', 'image/png', 'image/gif'], 'posts_per_page' => -1, 'post_status' => 'any', 'fields' => 'ids']);
+		$ids = get_posts(['post_type' => 'attachment', 'post_mime_type' => self::SOURCE_MIMES, 'posts_per_page' => -1, 'post_status' => 'any', 'fields' => 'ids']);
 		$stats = ['total' => count($ids), 'avif' => 0, 'webp' => 0, 'orig_size' => 0, 'avif_size' => 0, 'webp_size' => 0];
 
 		foreach ($ids as $id) {
 			$file = get_attached_file($id);
 			if (!$file || !file_exists($file)) continue;
 			$stats['orig_size'] += filesize($file);
-			$avif = preg_replace('/\.(jpe?g|png|gif)$/i', '.avif', $file);
-			if (file_exists($avif)) { $stats['avif']++; $stats['avif_size'] += filesize($avif); }
-			$webp = preg_replace('/\.(jpe?g|png|gif)$/i', '.webp', $file);
-			if (file_exists($webp)) { $stats['webp']++; $stats['webp_size'] += filesize($webp); }
+			// sibling_path() returns null when source and target are the same file, so a
+			// WebP original never gets counted as its own WebP conversion.
+			$avif = self::sibling_path($file, 'avif');
+			if ($avif && file_exists($avif)) { $stats['avif']++; $stats['avif_size'] += filesize($avif); }
+			$webp = self::sibling_path($file, 'webp');
+			if ($webp && file_exists($webp)) { $stats['webp']++; $stats['webp_size'] += filesize($webp); }
 		}
 
 		set_transient('timber_avif_statistics', $stats, 5 * MINUTE_IN_SECONDS);
@@ -1777,7 +1846,7 @@ class TimberAVIF {
 		$offset = max(0, intval($_POST['offset'] ?? 0));
 		$batch_size = max(1, min(10, intval($_POST['batch_size'] ?? 5)));
 
-		$ids = get_posts(['post_type' => 'attachment', 'post_mime_type' => ['image/jpeg', 'image/png', 'image/gif'], 'posts_per_page' => -1, 'post_status' => 'any', 'fields' => 'ids']);
+		$ids = get_posts(['post_type' => 'attachment', 'post_mime_type' => self::SOURCE_MIMES, 'posts_per_page' => -1, 'post_status' => 'any', 'fields' => 'ids']);
 		$total = count($ids);
 		$slice = array_slice($ids, $offset, $batch_size);
 
@@ -1974,9 +2043,23 @@ class TimberAVIF {
 		delete_transient('timber_avif_cap_webp_' . self::runtime_key());
 	}
 
+	/**
+	 * Part of every failure key, bumped whenever failures are flushed.
+	 *
+	 * The DELETE below only reaches transients that live in the options table: with an
+	 * external object cache they never get there. That was survivable while everything
+	 * expired within 24h, but an OVERSIZE_TTL entry nobody can reach is permanent in
+	 * practice. A counter carried by every key retires them all at once, wherever they
+	 * are stored. Autoloaded, so reading it costs nothing.
+	 */
+	private static function failure_generation(): int {
+		return (int) get_option('timber_avif_fail_gen', 0);
+	}
+
 	private static function flush_failure_transients(): void {
 		global $wpdb;
 		$wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_tavif_fail_%' OR option_name LIKE '_transient_timeout_tavif_fail_%'");
+		update_option('timber_avif_fail_gen', self::failure_generation() + 1, true);
 	}
 
 	/* ─────────────────────────────────────────────
@@ -1996,10 +2079,10 @@ class TimberAVIF {
 		if ($column !== 'tavif_optimized') return;
 		$file = get_attached_file($post_id);
 		if (!$file || !file_exists($file)) { echo '&mdash;'; return; }
-		$avif = preg_replace('/\.(jpe?g|png|gif)$/i', '.avif', $file);
-		$webp = preg_replace('/\.(jpe?g|png|gif)$/i', '.webp', $file);
-		$ha = $avif !== $file && file_exists($avif);
-		$hw = $webp !== $file && file_exists($webp);
+		$avif = self::sibling_path($file, 'avif');
+		$webp = self::sibling_path($file, 'webp');
+		$ha = $avif && file_exists($avif);
+		$hw = $webp && file_exists($webp);
 		if (!$ha && !$hw) { echo '<span style="color:#9ca3af;">&mdash;</span>'; return; }
 		if ($ha) echo '<span class="tavif-col-badge tavif-col-badge--avif">AVIF</span> ';
 		if ($hw) echo '<span class="tavif-col-badge tavif-col-badge--webp">WebP</span>';
@@ -2047,7 +2130,7 @@ class TimberAVIF {
 			\WP_CLI::log('WebP: ' . self::detect_capabilities('webp'));
 		});
 		\WP_CLI::add_command('timber-avif bulk', function () {
-			$ids = get_posts(['post_type' => 'attachment', 'post_mime_type' => ['image/jpeg', 'image/png', 'image/gif'], 'posts_per_page' => -1, 'post_status' => 'any', 'fields' => 'ids']);
+			$ids = get_posts(['post_type' => 'attachment', 'post_mime_type' => self::SOURCE_MIMES, 'posts_per_page' => -1, 'post_status' => 'any', 'fields' => 'ids']);
 			if (empty($ids)) { \WP_CLI::warning('No images.'); return; }
 			$progress = \WP_CLI\Utils\make_progress_bar('Converting ' . count($ids) . ' images', count($ids));
 			foreach ($ids as $id) { self::convert_single_attachment($id); $progress->tick(); }

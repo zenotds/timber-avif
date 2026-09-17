@@ -1,5 +1,49 @@
 # Migration Guide
 
+## From v6.1 to v6.1.2
+
+**Not breaking.** No call site, macro or setting changes. Markup is identical.
+
+### Run the backfill if your library holds WebP originals
+
+Until v6.1.2, bulk convert, `wp timber-avif bulk` and the statistics panel queried only `image/jpeg`, `image/png` and `image/gif`. A WebP uploaded after the drop-in was installed still got its siblings on upload — `on_upload()` never filtered by mime — but **a WebP that was already in the library, or imported from an older site, was never backfilled and never counted.** The front end then converted it inline on every request, against the per-request budget, which is what a slow or timing-out category page looks like.
+
+After replacing `avif.php`:
+
+```bash
+wp timber-avif bulk
+```
+
+Or Settings → Timber AVIF → Tools → Convert everything. The statistics total will go up by the number of WebP originals you have; that is the count that was missing before, not new files.
+
+Nothing to undo if you run `format_mode: webp`. There the destination *is* the source, `sibling_path()` returns null, and WebP sources are skipped exactly as they were.
+
+### Discarded conversions are no longer retried nightly
+
+A conversion thrown away for coming out heavier than its source used to be remembered for 24h, like a busy lock or a timeout. But that verdict is deterministic for a given quality and engine, so it was re-encoding the same files every day, forever — most visibly on WebP sources, which are already compressed. It is now remembered for a year, keyed as before to quality, engine and SAPI, so changing any of them still retires it. Tools → Clear cache retires it too.
+
+### The discard test now has a tolerance
+
+The test was `converted >= original`, down to the byte. A 5 KB WebP whose AVIF came out 5 KB was discarded and re-encoded daily, for nothing. Now a conversion is discarded only when it is heavier by **more than 10% and more than 4 KB**, or by more than 50 KB whatever the ratio. The three bars split the range between them: the floor decides below ~40 KB, the ratio between ~40 and ~500 KB, the ceiling above that.
+
+The practical effect is that small images keep their AVIF and large regressions are still thrown out. If you prefer the old byte-exact behaviour there is no setting for it — change `OVERSIZE_MIN_RATIO`, `OVERSIZE_MIN_BYTES` and `OVERSIZE_HARD_LIMIT` at the top of `avif.php`.
+
+Files discarded under the old rule are not regenerated on their own — their verdict is cached — so the migration steps below re-test them.
+
+### The AVIF quality default is 75
+
+It had drifted to 65 in the code while both this guide and the README still said 75. The constant is back at 75.
+
+This reaches **new installs only**: an existing site has `avif_quality` saved in its settings and keeps whatever is there. To pick it up, set it under Settings → Timber AVIF. Raising the quality invalidates cached verdicts on its own — quality is part of the failure key — so files discarded at 65 are re-tested at 75, and a few more of them will land over the source and be discarded, AVIF at 75 being the larger file.
+
+### Migration steps
+
+1. Replace `avif.php`. `macros.twig` is unchanged: no call site, no macro, no template needs touching.
+2. `wp timber-avif bulk`, or Tools → Convert everything. **Required if the library holds WebP originals**, worth running regardless: it retries every original and every registered size whatever verdict was cached, so the old byte-exact discards get re-tested under the tolerance.
+3. Tools → Clear cache. Bulk does not reach the resized variants the front end builds from the canonical widths — those carry their own cached verdicts, and clearing is what retires them, so the next page view re-tests them.
+
+Step 3 now works under an external object cache too. Flushing bumps a counter that every failure key carries, rather than relying on a `DELETE` against the options table that a Redis- or Memcached-backed transient never reaches. That mattered little while everything expired within 24h; it matters when a verdict is held for a year.
+
 ## From v6.0 to v6.1
 
 **Not breaking.** No call site has to change, and any image not flagged as AI generated or modified renders byte-for-byte as it did in v6.0.
@@ -93,4 +137,4 @@ The admin UI is now translatable (textdomain `timber-avif`), with Italian includ
 
 ## Notes
 - Capability detection is cached for a week; use `wp timber-avif clear-cache` after changing server libraries.
-- Variants are tracked in `_timber_variants` post meta for fast lookups.
+- Variants are found on disk next to the original, by `sibling_path()`, with a per-request static cache. There is no index in post meta.
