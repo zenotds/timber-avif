@@ -75,7 +75,7 @@ v6 emits a `srcset` with `w` descriptors from **one shared set of widths**, and 
 | `atf` | `false` | `fetchpriority="high"` instead of lazy loading. |
 | `alt` | image alt/title | Pass `''` for decorative images. |
 | `pictureClass` / `imgClass` | — | Classes on the two elements. |
-| `disclosure` | — | Corner for the AI Act label on flagged images: `top-left`, `top-right`, `bottom-left`, `bottom-right` (default). Inert unless a plugin implements the disclosure filter. |
+| `disclosure` | — | Corner for the AI Act label on flagged images: `top-left`, `top-right`, `bottom-left`, `bottom-right` (default), or `none`/`false` to leave it off this placement. Inert unless a plugin implements the disclosure filter. |
 
 `width` and `height` are always emitted, derived from the original's aspect ratio, so the CLS audit is satisfied without cropping a file.
 
@@ -110,6 +110,8 @@ Pick the corner per call:
 ```
 
 `bottom-right` is the default. Which corner works is a property of the composition rather than of the file — the same photo is clear in the corner of a card and buried under an overlay panel in a hero — so it belongs at the call site, not on the image.
+
+`disclosure: false` (or `'none'`) leaves the label off this placement, for a layout that discloses another way. It silences the placement, not the image: the same photo keeps its label everywhere else.
 
 The wrapper the macro emits is `.bizen-ai-media--fill`, which assumes the picture is stretched to a parent that sizes it. That matches the default `imgClass` of `object-cover h-full w-full`. A call site that sizes the image itself wants the plain `.bizen-ai-media` instead, which is an edit to the macro.
 

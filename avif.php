@@ -421,7 +421,7 @@ class TimberAVIF {
 		$url = self::extract_url($src);
 		if (!$url) return $empty;
 
-		$disclosure = self::disclosure($src, (string) ($opts['disclosure'] ?? ''));
+		$disclosure = self::disclosure($src, $opts['disclosure'] ?? '');
 
 		[$ow, $oh] = self::source_dimensions($src, $url);
 		if (!$ow) return array_merge($empty, ['ok' => true, 'src' => $url, 'disclosure' => $disclosure]);
@@ -476,14 +476,23 @@ class TimberAVIF {
 	 * top-left. Which corner is a property of the composition rather than of the
 	 * file — the same photo is clear in the corner of a card and buried under an
 	 * overlay panel in a hero — so the template decides, not the image.
+	 *
+	 * 'none', or false, leaves the label off this one placement, for a layout
+	 * that carries the disclosure some other way. It does not make the image
+	 * exempt: the same photo keeps its label everywhere else it appears.
 	 */
-	private static function disclosure($src, string $position): string {
+	private static function disclosure($src, $position): string {
 		if (!$src instanceof \Timber\Image) return '';
+
+		// `disclosure: false` in a template reads as "not here". Left as a string
+		// cast it would become '', which the plugin reads as "wherever the default
+		// is" — the opposite of what was written.
+		if (false === $position) $position = 'none';
 
 		$id = (int) ($src->id ?? 0);
 		if ($id < 1) return '';
 
-		return (string) apply_filters('bizen_ai_disclosure_badge', '', $id, $position);
+		return (string) apply_filters('bizen_ai_disclosure_badge', '', $id, (string) $position);
 	}
 
 	private static function source_dimensions($src, string $url): array {

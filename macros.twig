@@ -2,6 +2,7 @@
 {# `sizes` is the image's CSS width, not a list of pixel values: it must be accurate or the browser picks the wrong candidate #}
 {# `ratio` crops server-side, and is only worth it where the original's aspect ratio is far from how it is displayed: normally object-cover does the cropping #}
 {# `disclosure` picks the corner for the AI Act label, for images flagged as AI generated or modified: pass the corner nothing else occupies #}
+{# pass 'none' (or false) where this layout discloses some other way: it silences the label here only, the image keeps it everywhere else #}
 {% macro image(image, options = {}) %}
 	{% set config = {
 		sizes: '100vw',
