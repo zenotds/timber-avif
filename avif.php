@@ -1681,7 +1681,9 @@ class TimberAVIF {
 		</div>
 
 		<?php if (empty($filtered)): ?>
-			<p class="description"><?php esc_html_e('No entries', 'timber-avif'); ?><?php echo $filter !== 'all' ? ' matching this filter' : ''; ?>.</p>
+			<p class="description"><?php echo $filter !== 'all'
+				? esc_html__('No entries matching this filter.', 'timber-avif')
+				: esc_html__('No entries.', 'timber-avif'); ?></p>
 		<?php else: ?>
 			<table class="tavif-log-table">
 				<thead>
@@ -1714,7 +1716,14 @@ class TimberAVIF {
 					<?php endforeach; ?>
 				</tbody>
 			</table>
-			<p class="description" style="margin-top:12px;"><?php esc_html_e('Showing', 'timber-avif'); ?> ?php echo count($filtered); ?> of <?php echo count($logs); ?> entries (max <?php echo self::MAX_LOG_ENTRIES; ?> kept). Oldest entries are auto-pruned.</p>
+			<p class="description" style="margin-top:12px;"><?php
+				printf(
+					esc_html__('Showing %1$s of %2$s entries (max %3$s kept). Oldest entries are auto-pruned.', 'timber-avif'),
+					esc_html(number_format_i18n(count($filtered))),
+					esc_html(number_format_i18n(count($logs))),
+					esc_html(number_format_i18n(self::MAX_LOG_ENTRIES))
+				);
+			?></p>
 		<?php endif;
 	}
 
