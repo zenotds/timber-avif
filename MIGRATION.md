@@ -1,5 +1,19 @@
 # Migration Guide
 
+## From v6.1.2 to v6.1.3
+
+**Not breaking.** No call site, macro or setting changes. Markup is identical, and there is nothing to run.
+
+### Check the queue once, then forget it
+
+Until v6.1.3 the background queue woke up once an hour and cleared 20 jobs a pass, because the two quick wake-ups that were supposed to fire between heartbeats guarded on a hook that the hourly event always kept scheduled. At 20 jobs an hour against a 500-job ceiling that drops the oldest entries, a busy site sat pinned at 500 indefinitely.
+
+After replacing `avif.php`, look at Settings → Timber AVIF → Tools → Queue. A count at or near 500 is that backlog. It now clears on its own, about sixty times faster; **Process now** empties it in one go if you would rather not wait.
+
+Entries the ceiling already dropped are gone and do not come back as queue entries. Nothing is lost by it: the front end rebuilds those variants the next time a page asks for them.
+
+The queue is also drained during admin requests now, not only under `DISABLE_WP_CRON`. It runs after `fastcgi_finish_request()`, so no one waits for it, and it returns immediately when the queue is empty.
+
 ## From v6.1 to v6.1.2
 
 **Not breaking.** No call site, macro or setting changes. Markup is identical.

@@ -1,6 +1,14 @@
-# Timber AVIF (v6.1.2)
+# Timber AVIF (v6.1.3)
 
 Responsive images for Timber 2.x. A **theme drop-in** that generates AVIF/WebP next to the original and builds a `<picture>` the browser can actually choose from.
+
+## What v6.1.3 fixes
+
+One bug, in the scheduler that drains the conversion queue. It shows up as a queue sitting at exactly 500 on a site that has been running for a while.
+
+**The queue woke up once an hour instead of every 30 seconds.** Two places asked `wp_next_scheduled(CRON_HOOK)` before scheduling a quick wake-up: one when a job is queued, one after a pass that left work behind. But `init()` registers an hourly *recurring* event on that same hook, so the question always came back "already scheduled" and neither wake-up was ever created. Both were dead code. The queue therefore drained at 20 jobs an hour, one batch per heartbeat, against a 500-job ceiling that drops the oldest entries to stay under it: 25 hours to clear a backlog nothing is adding to, and never on a site still serving pages with missing variants. The quick wake-up now has its own hook, where the same guard means what it says. WP-Cron is request-driven and `spawn_cron()` holds a 60-second lock, so the real cadence settles around the minute rather than 30 seconds — roughly 1200 jobs an hour instead of 20.
+
+**The admin fallback was gated on `DISABLE_WP_CRON`.** The queue is also drained during admin requests, after `fastcgi_finish_request()`, where the delay is invisible. That path only ran when WP-Cron was disabled — which is to say almost never, and not on the sites that need it, since cron also misses beats on a site with no traffic or behind a full-page cache. It now runs on any admin request. Idle it costs one option lookup: the queue option is deleted when it empties and the drain returns on its first line. And the conversions are not extra work, they are the same variants the front end would otherwise build inline — paid after the response to an editor rather than in front of a visitor.
 
 ## What v6.1.2 fixes
 
@@ -150,5 +158,5 @@ wp i18n make-pot . languages/timber-avif.pot --domain=timber-avif --include=avif
 ## Notes
 
 - Capability detection is cached per SAPI: wp-cli, php-fpm and cron can be different PHP builds with different extensions.
-- With `DISABLE_WP_CRON`, the queue is drained during admin requests instead.
+- The queue is drained by WP-Cron and, after the response, by admin requests. The second path is what keeps it moving under `DISABLE_WP_CRON`, and on any site where cron misses beats.
 - The AVIF and WebP derivatives carry no XMP or C2PA — the encoders do not copy it across. Provenance is read from the original at upload time, so AI detection is unaffected, but a reader who downloads the served file gets one with no provenance embedded in it.

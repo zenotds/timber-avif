@@ -2,7 +2,7 @@
 /**
  * Timber AVIF Converter
  *
- * @version 6.1.2
+ * @version 6.1.3
  * @author Francesco Zeno Selva
  * @link https://github.com/zenotds/timber-avif
  *
@@ -65,12 +65,18 @@ if (class_exists('Timber\\Image') && !class_exists('AVIFImage')) {
 }
 
 class TimberAVIF {
-	const VERSION     = '6.1.2';
+	const VERSION     = '6.1.3';
 	const OPTION_KEY  = 'timber_avif_settings';
 	const QUEUE_KEY   = 'timber_avif_queue';
 	const LOG_KEY     = 'timber_avif_log';
 	const MAX_LOG_ENTRIES = 200;
+	// Two hooks for one job, because wp_next_scheduled() cannot tell them apart otherwise.
+	// CRON_HOOK carries the hourly heartbeat, so it always has a next occurrence; asking
+	// about it before scheduling a quick wake-up therefore always answered "already
+	// scheduled" and the wake-up never happened. The quick one lives on its own hook,
+	// where the same guard means what it says.
 	const CRON_HOOK   = 'timber_avif_process_queue';
+	const CRON_HOOK_NOW = 'timber_avif_process_queue_now';
 	const CRON_CLEANUP_HOOK = 'timber_avif_cleanup_stale_locks';
 	const STALE_LOCK_TIMEOUT = 300;
 
@@ -168,10 +174,13 @@ class TimberAVIF {
 
 		// Cron
 		add_action(self::CRON_HOOK, [__CLASS__, 'process_cron_queue']);
+		add_action(self::CRON_HOOK_NOW, [__CLASS__, 'process_cron_queue']);
 
-		// Con DISABLE_WP_CRON l'hook non scatta mai e la coda resta ferma: in admin la si smaltisce
-		// a piccoli passi dopo la risposta, dove un rallentamento non si vede.
-		if (is_admin() && (defined('DISABLE_WP_CRON') && DISABLE_WP_CRON)) {
+		// La coda si smaltisce anche sulle richieste admin, dopo la risposta, dove un
+		// rallentamento non si vede. Prima stava dietro DISABLE_WP_CRON, cioe' quasi mai:
+		// ma il cron perde colpi anche quando e' attivo, su un sito senza traffico o dietro
+		// una cache a pagina intera, e li' questo e' l'unico ripiego che c'e'.
+		if (is_admin()) {
 			add_action('shutdown', [__CLASS__, 'drain_queue_in_admin'], 99);
 		}
 		if (!wp_next_scheduled(self::CRON_HOOK)) {
@@ -738,8 +747,16 @@ class TimberAVIF {
 
 		update_option(self::QUEUE_KEY, $queue, false);
 
-		if (!wp_next_scheduled(self::CRON_HOOK)) {
-			wp_schedule_single_event(time(), self::CRON_HOOK);
+		self::schedule_queue_wakeup();
+	}
+
+	/**
+	 * Un risveglio della coda prima del prossimo battito orario. Il guard sta sull'hook
+	 * dedicato: quello ricorrente ha sempre una prossima occorrenza e direbbe di no ogni volta.
+	 */
+	private static function schedule_queue_wakeup(int $delay = 0): void {
+		if (!wp_next_scheduled(self::CRON_HOOK_NOW)) {
+			wp_schedule_single_event(time() + $delay, self::CRON_HOOK_NOW);
 		}
 	}
 
@@ -763,9 +780,7 @@ class TimberAVIF {
 			delete_option(self::QUEUE_KEY);
 		} else {
 			update_option(self::QUEUE_KEY, $queue, false);
-			if (!wp_next_scheduled(self::CRON_HOOK)) {
-				wp_schedule_single_event(time() + 30, self::CRON_HOOK);
-			}
+			self::schedule_queue_wakeup(30);
 		}
 	}
 
@@ -2119,7 +2134,7 @@ class TimberAVIF {
 	}
 
 	public static function deregister_crons(): void {
-		foreach ([self::CRON_HOOK, self::CRON_CLEANUP_HOOK] as $h) {
+		foreach ([self::CRON_HOOK, self::CRON_HOOK_NOW, self::CRON_CLEANUP_HOOK] as $h) {
 			$ts = wp_next_scheduled($h);
 			if ($ts) wp_unschedule_event($ts, $h);
 		}
