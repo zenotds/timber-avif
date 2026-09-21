@@ -69,6 +69,7 @@ class TimberAVIF {
 	const OPTION_KEY  = 'timber_avif_settings';
 	const QUEUE_KEY   = 'timber_avif_queue';
 	const LOG_KEY     = 'timber_avif_log';
+	const STATS_KEY   = 'timber_avif_statistics_v2';
 	const MAX_LOG_ENTRIES = 200;
 	// Two hooks for one job, because wp_next_scheduled() cannot tell them apart otherwise.
 	// CRON_HOOK carries the hourly heartbeat, so it always has a next occurrence; asking
@@ -1736,8 +1737,9 @@ class TimberAVIF {
 		$total   = $stats['total'];
 		$pct     = $total > 0 ? round($done / $total * 100) : 0;
 		$size    = $stats[$modern . '_size'];
-		$saved   = $stats['orig_size'] - $size;
-		$savePct = $stats['orig_size'] > 0 ? round($saved / $stats['orig_size'] * 100) : 0;
+		$srcSize = $stats[$modern . '_src_size'];
+		$saved   = $srcSize - $size;
+		$savePct = $srcSize > 0 ? round($saved / $srcSize * 100) : 0;
 		?>
 		<div class="tavif-stats-grid">
 			<div class="tavif-stat-card">
@@ -1753,7 +1755,7 @@ class TimberAVIF {
 				<div class="tavif-stat-card tavif-stat-card--green">
 					<div class="stat-value"><?php echo self::format_bytes($saved); ?></div>
 					<div class="stat-label"><?php esc_html_e('Saved', 'timber-avif'); ?></div>
-					<div class="stat-sub"><?php printf(esc_html__('%1$d%% of %2$s', 'timber-avif'), (int) $savePct, self::format_bytes($stats['orig_size'])); ?></div>
+					<div class="stat-sub"><?php printf(esc_html__('%1$d%% of %2$s', 'timber-avif'), (int) $savePct, self::format_bytes($srcSize)); ?></div>
 				</div>
 			<?php endif; ?>
 		</div>
@@ -1783,25 +1785,28 @@ class TimberAVIF {
 	}
 
 	private static function get_statistics(): array {
-		$cached = get_transient('timber_avif_statistics');
+		$cached = get_transient(self::STATS_KEY);
 		if ($cached !== false) return $cached;
 
 		$ids = get_posts(['post_type' => 'attachment', 'post_mime_type' => self::SOURCE_MIMES, 'posts_per_page' => -1, 'post_status' => 'any', 'fields' => 'ids']);
-		$stats = ['total' => count($ids), 'avif' => 0, 'webp' => 0, 'orig_size' => 0, 'avif_size' => 0, 'webp_size' => 0];
+		$stats = ['total' => count($ids), 'avif' => 0, 'webp' => 0, 'avif_size' => 0, 'avif_src_size' => 0, 'webp_size' => 0, 'webp_src_size' => 0];
 
 		foreach ($ids as $id) {
 			$file = get_attached_file($id);
 			if (!$file || !file_exists($file)) continue;
-			$stats['orig_size'] += filesize($file);
+			$orig = filesize($file);
+			// The saved figure compares each conversion against its own source, so the
+			// source bytes are only counted for the images that do have a conversion —
+			// an untouched library saves nothing, whatever it weighs.
 			// sibling_path() returns null when source and target are the same file, so a
 			// WebP original never gets counted as its own WebP conversion.
 			$avif = self::sibling_path($file, 'avif');
-			if ($avif && file_exists($avif)) { $stats['avif']++; $stats['avif_size'] += filesize($avif); }
+			if ($avif && file_exists($avif)) { $stats['avif']++; $stats['avif_size'] += filesize($avif); $stats['avif_src_size'] += $orig; }
 			$webp = self::sibling_path($file, 'webp');
-			if ($webp && file_exists($webp)) { $stats['webp']++; $stats['webp_size'] += filesize($webp); }
+			if ($webp && file_exists($webp)) { $stats['webp']++; $stats['webp_size'] += filesize($webp); $stats['webp_src_size'] += $orig; }
 		}
 
-		set_transient('timber_avif_statistics', $stats, 5 * MINUTE_IN_SECONDS);
+		set_transient(self::STATS_KEY, $stats, 5 * MINUTE_IN_SECONDS);
 		return $stats;
 	}
 
@@ -1889,7 +1894,7 @@ class TimberAVIF {
 
 		$new_offset = $offset + count($slice);
 		$done = $new_offset >= $total;
-		if ($done) delete_transient('timber_avif_statistics');
+		if ($done) delete_transient(self::STATS_KEY);
 
 		wp_send_json_success(['processed' => $new_offset, 'total' => $total, 'done' => $done]);
 	}
@@ -2040,7 +2045,7 @@ class TimberAVIF {
 		}
 
 		delete_option(self::QUEUE_KEY);
-		delete_transient('timber_avif_statistics');
+		delete_transient(self::STATS_KEY);
 		self::flush_failure_transients();
 		self::$exists_cache = [];
 		return $deleted;
@@ -2048,7 +2053,7 @@ class TimberAVIF {
 
 	public static function clear_all_caches(): void {
 		self::flush_capability_transients();
-		delete_transient('timber_avif_statistics');
+		delete_transient(self::STATS_KEY);
 		self::flush_failure_transients();
 		self::$conversion_methods = ['avif' => null, 'webp' => null];
 		self::$exists_cache = [];
