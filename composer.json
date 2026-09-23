@@ -1,0 +1,25 @@
+{
+	"name": "zenotds/timber-avif",
+	"description": "Responsive AVIF/WebP images for Timber 2, converted in the background and served from a <picture>.",
+	"type": "library",
+	"license": "MIT",
+	"homepage": "https://github.com/zenotds/timber-avif",
+	"authors": [
+		{
+			"name": "Francesco Zeno Selva",
+			"email": "francesco.selva@bizen.it"
+		}
+	],
+	"require": {
+		"php": ">=8.1",
+		"timber/timber": "^2.3"
+	},
+	"autoload": {
+		"psr-4": {
+			"TimberAVIF\\": "src/"
+		},
+		"files": [
+			"timber-avif.php"
+		]
+	}
+}
