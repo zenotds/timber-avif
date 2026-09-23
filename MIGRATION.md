@@ -1,5 +1,57 @@
 # Migration Guide
 
+## From v6.1.x to v7.0
+
+**Breaking in how it is installed, not in the templates.** Call sites stay as they are, `image_sources()` returns the same keys, and the settings carry over. What changes is where the code lives and when files are made.
+
+The one thing to avoid is switching straight from v6 to v7: v7 does not read v6's files, so until its worker had been through the library every image would be served as JPEG. On a clone of a real catalogue that was pages three to fifteen times heavier, for the hour or more the conversion took. So v7 installs **next to** v6 first, converts the library while v6 keeps serving the site, and takes over when there is nothing left to do.
+
+### Steps
+
+1. **Install v7 next to v6.** With Composer (see [README](README.md#with-composer)) plus `TimberAVIF\Plugin::load();` in `functions.php`, or as a drop-in folder. Leave the `require` of `avif.php` where it is. v7 sees v6 and only *prepares*: its worker converts in the background, v6 still renders every page, owns the settings page and keeps its CLI commands. A notice on the dashboard and the media library shows how far it has got.
+2. **Let it convert, or push it.** It runs on WP-Cron and after admin requests, a few images a minute on a site with traffic. To do it in one go:
+
+   ```bash
+   wp timber-avif prepare --all
+   ```
+
+   On the clone of a 1,454-image catalogue that was about 45 minutes on a laptop; a shared host is slower.
+3. **Switch.** When the notice says the library is ready, remove the `require` of `avif.php` from `functions.php`, and the file. The first request stores the settings the way v7 reads them and retires v6's queue, log, crons and cached failures. Nothing is re-encoded: the settings in effect are the same before and after, so every image the worker prepared is already done.
+4. **Point the macro at the package.** In `partial/macros.twig`, replace the body of `image()` with a delegation, and every call site keeps working:
+
+   ```twig
+   {% macro image(image, options = {}) %}
+   	{% import '@timber-avif/macros.twig' as tavif %}
+   	{{ tavif.image(image, options) }}
+   {% endmacro %}
+   ```
+
+   From then on, updating the package updates the macro, `sizes="auto"` included. A theme that forked the macro can keep its fork: `image_sources()` returns the same keys it did.
+5. **Remove theme code v7 now does itself.** A `wp_content_img_tag` filter that wraps editor images in a `<picture>` (Mobilissimo has one in `functions/custom.php`) is no longer needed: v7 does it first, and the theme's filter then finds the `<picture>` and returns. Anything else it did — dropping `fetchpriority` from content images, for instance — belongs in a filter of its own.
+6. **Remove what v6 left.** Tools → *Remove v6 files*, or `wp timber-avif purge --v6`. It deletes `photo.avif` / `photo.webp` next to `photo.jpg` (for originals, sub-sizes and Timber resizes alike) and the `.lock` files. With *Also delete the JPEGs Timber resized* (`--timber-resizes`), Timber's `-640x0-c-default.jpg` files go too: v7 never reads them, and on Mobilissimo they were 1 GB, next to 650 MB of v6 AVIF. Every file WordPress lists for an attachment is protected, and Timber rebuilds any resize a template still asks for with `|resize`.
+7. **Look at Settings → Timber AVIF once.** A value that differs from the default shows the default next to it.
+
+### Settings
+
+v6 wrote every default into the database on its first run, so its option cannot tell a choice from a default nobody touched. v7 reads a v6 value equal to a v6 default as a default: it follows v7's defaults from then on. Two of them changed:
+
+- **JPEG quality: 95 → 82.** v6 needed 95 because every AVIF was transcoded from those JPEGs; v7 encodes from the full-size file, so the JPEG is only the fallback. Existing JPEGs are not re-encoded: new sub-sizes use 82.
+- **AVIF quality: 65 → 75** on sites installed with 6.0–6.1.1, whose default was 65 by mistake. That one does re-encode those sites' library, in the background: 75 is what the documentation always promised.
+
+A value that differs from both was a choice, and stays. From v7 on only choices are stored, so future defaults reach every site that left them alone.
+
+### What behaves differently
+
+- **Nothing is converted while a page renders.** v6 converted up to ten files inline, then after the response, then in a queue. v7 only ever reads.
+- **Only library images get modern formats.** A theme asset or external URL passed to the macro, or to `|toavif`, is served as it is. Those are better converted once by the theme's build.
+- **`widths` picks from Settings → Widths.** Files exist only for the configured widths, so a per-call width outside them is ignored (and logged under `WP_DEBUG`). To add a width, add it in Settings: it is built for the whole library in the background.
+- **`max` below every configured width** is built on request, like a crop: the first render asks for it, the worker builds it. v6 built it on the spot.
+- **`ratio` is built on request.** The first render of a new ratio records it and returns the uncropped files in a box of that ratio; the worker builds the crops shortly after.
+- **`avif_src(w, h)`, `webp_src`, `best_src`** return the closest existing width at or above `w` — cropped when `h` is given — instead of a file resized to exactly that size.
+- **Settings removed:** *Pre-generate on upload* and its widths (every width is built at upload now) and *Per page* (there is no inline conversion to budget). **Added:** *Content images*.
+- **The Logs tab is now Issues**: the images that currently have a problem, with the reason, instead of the last 200 events.
+- **Requirements:** PHP 8.1 and WordPress 6.5, for AVIF support in WordPress's image editors.
+
 ## From v6.1.2 to v6.1.3
 
 **Not breaking.** No call site, macro or setting changes. Markup is identical, and there is nothing to run.
@@ -151,4 +203,4 @@ The admin UI is now translatable (textdomain `timber-avif`), with Italian includ
 
 ## Notes
 - Capability detection is cached for a week; use `wp timber-avif clear-cache` after changing server libraries.
-- Variants are found on disk next to the original, by `sibling_path()`, with a per-request static cache. There is no index in post meta.
+- Up to v6, variants were found on disk next to the original, by `sibling_path()`, with no index. From v7 each attachment keeps an index in its post meta (`_tavif`), and the render path never touches the disk.

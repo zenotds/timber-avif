@@ -45,12 +45,19 @@ final class Sizes {
 			return array_filter((array) $missing, fn($data, $name) => str_starts_with($name, self::PREFIX) && (int) $data['width'] < $full, ARRAY_FILTER_USE_BOTH);
 		};
 
+		// wp_update_image_subsizes() runs `wp_generate_attachment_metadata` again, and while v7
+		// prepares next to v6 that is v6's upload hook: it re-encoded every image v7 prepared
+		// in its own way, doubling the time for files nobody would serve.
+		$v6 = Plugin::preparing() ? has_filter('wp_generate_attachment_metadata', ['TimberAVIF', 'on_upload']) : false;
+		if ($v6 !== false) remove_filter('wp_generate_attachment_metadata', ['TimberAVIF', 'on_upload'], $v6);
+
 		add_filter('wp_get_missing_image_subsizes', $ours, 99);
 		try {
 			if (!wp_get_missing_image_subsizes($id)) return $meta;
 			$updated = wp_update_image_subsizes($id);
 		} finally {
 			remove_filter('wp_get_missing_image_subsizes', $ours, 99);
+			if ($v6 !== false) add_filter('wp_generate_attachment_metadata', ['TimberAVIF', 'on_upload'], $v6, 2);
 		}
 
 		return is_array($updated) ? $updated : $meta;

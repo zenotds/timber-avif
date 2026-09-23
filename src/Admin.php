@@ -219,7 +219,7 @@ final class Admin {
 					<div class="tavif-field-input">
 						<input type="number" id="tavif-maxdim" name="max_dimension" value="<?php echo esc_attr($s['max_dimension']); ?>" min="512" step="1" /> px
 						<input type="number" name="max_file_size" value="<?php echo esc_attr($s['max_file_size']); ?>" min="1" step="1" /> MB<?php echo $default('max_dimension') ?: $default('max_file_size'); ?>
-						<p class="tavif-hint"><?php esc_html_e('Conversions start from the original upload. Past either value they start from the scaled copy instead, and past both the image is left as it is, to avoid exhausting server memory.', 'timber-avif'); ?></p>
+						<p class="tavif-hint"><?php esc_html_e('Conversions start from the full-size file. Past either value they start from the widest generated size instead, so a large PNG, which WordPress does not scale, still gets a modern copy without exhausting server memory.', 'timber-avif'); ?></p>
 					</div>
 				</div>
 
