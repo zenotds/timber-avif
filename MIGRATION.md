@@ -15,7 +15,7 @@ The one thing to avoid is switching straight from v6 to v7: v7 does not read v6'
    wp timber-avif prepare --all
    ```
 
-   On the clone of a 1,454-image catalogue that was about 45 minutes on a laptop; a shared host is slower.
+   On the clone of a 1,454-image catalogue that was about 20 images a minute on a laptop — some 75 minutes — because every image uploaded before v7 also gets its canonical JPEG sizes built. A shared host is slower. v6 serves the site meanwhile, so the time is nobody's wait.
 3. **Switch.** When the notice says the library is ready, remove the `require` of `avif.php` from `functions.php`, and the file. The first request stores the settings the way v7 reads them and retires v6's queue, log, crons and cached failures. Nothing is re-encoded: the settings in effect are the same before and after, so every image the worker prepared is already done.
 4. **Point the macro at the package.** In `partial/macros.twig`, replace the body of `image()` with a delegation, and every call site keeps working:
 
