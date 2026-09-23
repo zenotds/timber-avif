@@ -1,375 +1,400 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: \n"
-"Report-Msgid-Bugs-To: \n"
+"Project-Id-Version: Timber AVIF\n"
+"Report-Msgid-Bugs-To: https://github.com/zenotds/timber-avif/issues\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-09-18T13:07:32+00:00\n"
+"POT-Creation-Date: 2026-09-23T16:10:25+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: timber-avif\n"
 
-#: avif.php:1289
-msgid "this server cannot generate AVIF. Images are served as WebP or in their original format."
+#: src/Admin.php:50
+msgid "Processing…"
 msgstr ""
 
-#: avif.php:1300
-#: avif.php:1582
-msgid "Not available"
+#: src/Admin.php:51
+msgid "Another worker is running, waiting…"
 msgstr ""
 
-#: avif.php:1372
-msgid "Served format"
-msgstr ""
-
-#: avif.php:1372
-msgid "Original"
-msgstr ""
-
-#: avif.php:1373
-msgid "Engine"
-msgstr ""
-
-#: avif.php:1374
-msgid "Quality"
-msgstr ""
-
-#: avif.php:1375
-#: avif.php:1468
-msgid "Widths"
-msgstr ""
-
-#: avif.php:1377
+#. translators: %d: number of images
+#: src/Admin.php:53
 #, php-format
-msgid "%1$d defined, %2$d built on upload"
+msgid "%d remaining"
 msgstr ""
 
-#: avif.php:1378
-#, php-format
-msgid "%d defined, built on first request"
+#: src/Admin.php:54
+msgid "Queue empty."
 msgstr ""
 
-#: avif.php:1379
-#: avif.php:1626
-msgid "Queue"
+#: src/Admin.php:55
+msgid "Request failed."
 msgstr ""
 
-#: avif.php:1379
-#, php-format
-msgid "%d pending"
-msgid_plural "%d pending"
-msgstr[0] ""
-msgstr[1] ""
-
-#: avif.php:1379
-msgid "Empty"
-msgstr ""
-
-#: avif.php:1394
-msgid "Queued images are converted a few at a time while you work in the admin."
-msgstr ""
-
-#: avif.php:1398
-msgid "Settings"
-msgstr ""
-
-#: avif.php:1399
-msgid "Tools"
-msgstr ""
-
-#: avif.php:1400
-msgid "Statistics"
-msgstr ""
-
-#: avif.php:1401
-msgid "Log"
-msgstr ""
-
-#: avif.php:1430
-msgid "Format and quality"
-msgstr ""
-
-#: avif.php:1433
-#: avif.php:1693
-msgid "Format"
-msgstr ""
-
-#: avif.php:1436
-msgid "Auto"
-msgstr ""
-
-#: avif.php:1436
-msgid "None"
-msgstr ""
-
-#: avif.php:1440
-msgid "Served instead of the original, which stays as a fallback."
-msgstr ""
-
-#: avif.php:1464
-msgid "Quality scales are not comparable across formats: AVIF 75 matches JPEG 95."
-msgstr ""
-
-#: avif.php:1469
-msgid "The sizes every image is generated in. The browser picks the one that fits the screen."
-msgstr ""
-
-#: avif.php:1472
-msgid "Sizes"
-msgstr ""
-
-#: avif.php:1475
-msgid "Comma-separated. Each size is one more file per image."
-msgstr ""
-
-#: avif.php:1480
-msgid "On upload"
-msgstr ""
-
-#: avif.php:1484
-msgid "Ticked sizes are built right away. The rest on the first visit to a page that uses them."
-msgstr ""
-
-#: avif.php:1489
-msgid "Enabled"
-msgstr ""
-
-#: avif.php:1496
-msgid "Limits"
-msgstr ""
-
-#: avif.php:1499
-msgid "Upload"
-msgstr ""
-
-#: avif.php:1502
-msgid "Wider images are scaled down to this size on arrival."
-msgstr ""
-
-#: avif.php:1507
-msgid "Conversion"
-msgstr ""
-
-#: avif.php:1511
-msgid "Past either value the image is left as it is, to avoid exhausting server memory. This also covers files already in the library, which can exceed the upload limit."
-msgstr ""
-
-#: avif.php:1516
-msgid "Per page"
-msgstr ""
-
-#: avif.php:1518
-msgid "images"
-msgstr ""
-
-#: avif.php:1519
-msgid "How many to convert while the visitor waits. The rest continue in the background."
-msgstr ""
-
-#: avif.php:1524
-msgid "Discard"
-msgstr ""
-
-#: avif.php:1530
-msgid "Discard the converted file when it weighs meaningfully more than the original"
-msgstr ""
-
-#: avif.php:1532
-msgid "A few KB over is kept — the better format is worth it. Discarded past +10% and +4 KB, or past +50 KB whatever the ratio."
-msgstr ""
-
-#: avif.php:1537
-msgid "Save"
-msgstr ""
-
-#: avif.php:1590
-msgid "Convert everything"
-msgstr ""
-
-#: avif.php:1591
-msgid "Generate the modern format for every image in the library. Already converted ones are skipped."
-msgstr ""
-
-#: avif.php:1592
-#: avif.php:1982
-msgid "Start"
-msgstr ""
-
-#: avif.php:1604
-msgid "Delete conversions"
-msgstr ""
-
-#: avif.php:1605
-msgid "Deletes every generated AVIF and WebP file. Originals are untouched and files rebuild on first visit. Use it after a quality change, to realign the library."
-msgstr ""
-
-#: avif.php:1611
-msgid "Delete every generated AVIF and WebP file?"
-msgstr ""
-
-#: avif.php:1611
-msgid "Delete"
-msgstr ""
-
-#: avif.php:1615
-msgid "Clear cache"
-msgstr ""
-
-#: avif.php:1616
-msgid "Detect the conversion engines available on this server again, and clear the memory of failed attempts."
-msgstr ""
-
-#: avif.php:1622
-msgid "Clear"
-msgstr ""
-
-#: avif.php:1627
-msgid "images waiting to be converted."
-msgstr ""
-
-#: avif.php:1628
-#: avif.php:2010
+#: src/Admin.php:56
+#: src/Admin.php:244
 msgid "Process now"
 msgstr ""
 
-#: avif.php:1664
-msgid "All"
+#: src/Admin.php:71
+msgid "Settings"
 msgstr ""
 
-#: avif.php:1664
-msgid "Skipped"
+#: src/Admin.php:72
+msgid "Tools"
 msgstr ""
 
-#: avif.php:1664
-msgid "Failed"
+#: src/Admin.php:73
+msgid "Issues"
 msgstr ""
 
-#: avif.php:1664
-msgid "Errors"
+#: src/Admin.php:110
+msgid "Served format"
 msgstr ""
 
-#: avif.php:1678
-msgid "Clear the log?"
+#: src/Admin.php:110
+#: src/Admin.php:471
+msgid "Original"
 msgstr ""
 
-#: avif.php:1678
-msgid "Clear log"
+#: src/Admin.php:111
+msgid "Engine"
 msgstr ""
 
-#: avif.php:1685
-msgid "No entries matching this filter."
+#: src/Admin.php:112
+msgid "GD keeps no colour profile: photos in Display P3 or Adobe RGB change colour. Enable Imagick on the server."
 msgstr ""
 
-#: avif.php:1686
-msgid "No entries."
+#: src/Admin.php:113
+msgid "Library"
 msgstr ""
 
-#: avif.php:1691
-msgid "Time"
-msgstr ""
-
-#: avif.php:1694
-msgid "Result"
-msgstr ""
-
-#: avif.php:1695
-msgid "Reason"
-msgstr ""
-
-#: avif.php:1721
+#: src/Admin.php:113
 #, php-format
-msgid "Showing %1$s of %2$s entries (max %3$s kept). Oldest entries are auto-pruned."
+msgid "%1$s of %2$s ready"
 msgstr ""
 
-#: avif.php:1745
-msgid "Images"
+#: src/Admin.php:114
+#: src/Admin.php:242
+msgid "Queue"
 msgstr ""
 
-#: avif.php:1749
+#: src/Admin.php:114
 #, php-format
-msgid "Converted to %s"
+msgid "%s pending"
+msgid_plural "%s pending"
+msgstr[0] ""
+msgstr[1] ""
+
+#: src/Admin.php:114
+msgid "Empty"
 msgstr ""
 
-#: avif.php:1750
-#, php-format
-msgid "%d%% of the library"
+#: src/Admin.php:115
+msgid "Converted in the background by WP-Cron and after admin requests. Tools → Process now empties it right away."
 msgstr ""
 
-#: avif.php:1755
+#: src/Admin.php:118
 msgid "Saved"
 msgstr ""
 
-#: avif.php:1756
+#: src/Admin.php:119
 #, php-format
-msgid "%1$d%% of %2$s"
+msgid "%1$s converted files weigh %2$s less than the files they replace (%3$d%%)."
 msgstr ""
 
-#: avif.php:1764
+#: src/Admin.php:140
 #, php-format
-msgid "The %d images left out are still waiting, or are ones where the modern format would weigh meaningfully more than the original: it happens on flat graphics, on icons, and on files already stored in the format being served. They are left as they were."
+msgid "default %s"
 msgstr ""
 
-#: avif.php:1773
+#: src/Admin.php:140
+msgid "on"
+msgstr ""
+
+#: src/Admin.php:140
+msgid "off"
+msgstr ""
+
+#: src/Admin.php:147
+msgid "Format and quality"
+msgstr ""
+
+#: src/Admin.php:150
+msgid "Format"
+msgstr ""
+
+#: src/Admin.php:153
+msgid "Auto"
+msgstr ""
+
+#: src/Admin.php:153
+msgid "None"
+msgstr ""
+
+#: src/Admin.php:157
+msgid "Served instead of the original, which stays as a fallback. Auto picks AVIF when the server can encode it, WebP otherwise."
+msgstr ""
+
+#: src/Admin.php:173
+msgid "Quality scales are not comparable across formats: AVIF 75 matches JPEG 95. Changing the quality of the served format re-encodes the library in the background; the current files are served until each is replaced."
+msgstr ""
+
+#: src/Admin.php:177
+msgid "Widths"
+msgstr ""
+
+#: src/Admin.php:178
+msgid "The sizes every image is generated in. The browser picks the one that fits the screen."
+msgstr ""
+
+#: src/Admin.php:181
+msgid "Sizes"
+msgstr ""
+
+#: src/Admin.php:184
+msgid "Comma-separated. Each size is one more file per image, built at upload. A size added here is built for the existing library in the background."
+msgstr ""
+
+#: src/Admin.php:190
+msgid "Limits"
+msgstr ""
+
+#: src/Admin.php:193
+msgid "Upload"
+msgstr ""
+
+#: src/Admin.php:196
+msgid "Wider images are scaled down to this size on arrival."
+msgstr ""
+
+#: src/Admin.php:201
+msgid "Conversion"
+msgstr ""
+
+#: src/Admin.php:205
+msgid "Conversions start from the original upload. Past either value they start from the scaled copy instead, and past both the image is left as it is, to avoid exhausting server memory."
+msgstr ""
+
+#: src/Admin.php:210
+msgid "Discard"
+msgstr ""
+
+#: src/Admin.php:216
+msgid "Discard the converted file when it weighs meaningfully more than the original"
+msgstr ""
+
+#: src/Admin.php:218
+msgid "A few KB over is kept — the better format is worth it. Discarded past +10% and +4 KB, or past +50 KB whatever the ratio."
+msgstr ""
+
+#: src/Admin.php:223
+msgid "Only values that differ from the default are saved, so the others follow the defaults of future versions."
+msgstr ""
+
+#: src/Admin.php:225
+msgid "Save"
+msgstr ""
+
+#: src/Admin.php:226
+msgid "Reset to defaults"
+msgstr ""
+
+#: src/Admin.php:226
+msgid "Reset every setting to its default?"
+msgstr ""
+
+#: src/Admin.php:234
+msgid "Rebuild everything"
+msgstr ""
+
+#: src/Admin.php:234
+msgid "Encode every image again with the current settings — after upgrading the server's image libraries, for instance. The current files are served until each is replaced."
+msgstr ""
+
+#: src/Admin.php:234
+msgid "Rebuild"
+msgstr ""
+
+#: src/Admin.php:234
+msgid "Re-encode the whole library in the background?"
+msgstr ""
+
+#: src/Admin.php:235
+msgid "Clear cache"
+msgstr ""
+
+#: src/Admin.php:235
+msgid "Detect the conversion engines available on this server again, and retry the conversions that failed."
+msgstr ""
+
+#: src/Admin.php:235
+msgid "Clear"
+msgstr ""
+
+#: src/Admin.php:236
+msgid "Delete conversions"
+msgstr ""
+
+#: src/Admin.php:236
+msgid "Deletes every AVIF and WebP file and every crop Timber AVIF made. Originals are untouched; the files are rebuilt in the background, and until then the originals are served."
+msgstr ""
+
+#: src/Admin.php:236
+msgid "Delete"
+msgstr ""
+
+#: src/Admin.php:236
+msgid "Delete every generated AVIF and WebP file?"
+msgstr ""
+
+#: src/Admin.php:237
+msgid "Remove v6 files"
+msgstr ""
+
+#: src/Admin.php:237
+msgid "Deletes the copies v6 wrote next to each file (photo.avif beside photo.jpg) and its leftover .lock files. v7 names its files differently and never reads those."
+msgstr ""
+
+#: src/Admin.php:237
+msgid "Remove"
+msgstr ""
+
+#: src/Admin.php:237
+msgid "Delete every file left by v6?"
+msgstr ""
+
+#: src/Admin.php:243
 #, php-format
-msgid "The library also holds %1$d %2$s files (%3$s), generated when a different format was being served. Remove them from Tools &rarr; Delete conversions."
+msgid "%s images waiting to be converted."
 msgstr ""
 
-#: avif.php:1781
-msgid "Updated every 5 minutes. The count covers original images, not the individual sizes generated from them."
+#: src/Admin.php:279
+msgid "No images need a look."
 msgstr ""
 
-#: avif.php:1816
+#: src/Admin.php:283
+msgid "Images the worker could not convert, with the reason. A conversion discarded for weighing more than its original is not listed: that is the tolerance at work."
+msgstr ""
+
+#: src/Admin.php:288
+msgid "File"
+msgstr ""
+
+#: src/Admin.php:289
+msgid "Reason"
+msgstr ""
+
+#: src/Admin.php:290
+msgid "Time"
+msgstr ""
+
+#: src/Admin.php:317
 msgid "Settings saved."
 msgstr ""
 
-#: avif.php:1817
-msgid "Conversion complete."
+#: src/Admin.php:318
+msgid "Settings reset to their defaults."
 msgstr ""
 
-#: avif.php:1818
+#: src/Admin.php:319
+msgid "The library will be re-encoded in the background."
+msgstr ""
+
+#: src/Admin.php:320
 msgid "Cache cleared."
 msgstr ""
 
-#: avif.php:1819
+#: src/Admin.php:326
 #, php-format
 msgid "%d files deleted."
 msgstr ""
 
-#: avif.php:1820
-msgid "Queue processed."
+#: src/Admin.php:331
+msgid "This server can encode neither AVIF nor WebP: images are served in their original format."
 msgstr ""
 
-#: avif.php:1821
-msgid "Log cleared."
+#: src/Admin.php:333
+#, php-format
+msgid "This server cannot generate %s, which is the format selected: nothing is being converted."
 msgstr ""
 
-#: avif.php:1967
-msgid "Stopping…"
+#: src/Admin.php:335
+msgid "This server cannot generate AVIF. Images are served as WebP or in their original format."
 msgstr ""
 
-#: avif.php:1969
-msgid "Cancel"
+#: src/Admin.php:344
+#: src/Admin.php:365
+#: src/Admin.php:421
+msgid "Insufficient permissions"
 msgstr ""
 
-#: avif.php:1970
-msgid "Starting…"
+#: src/Admin.php:454
+msgid "Animated"
 msgstr ""
 
-#: avif.php:1974
-msgid "Cancelled at"
+#: src/Admin.php:464
+msgid "Pending"
 msgstr ""
 
-#: avif.php:1979
-msgid "images processed."
+#: src/Admin.php:466
+msgid "Issue"
 msgstr ""
 
-#: avif.php:1994
-msgid "Processing…"
+#: src/Admin.php:468
+#, php-format
+msgid "%d size kept as original: the conversion weighed more"
+msgid_plural "%d sizes kept as original: the conversion weighed more"
+msgstr[0] ""
+msgstr[1] ""
+
+#: src/Admin.php:471
+msgid "Every conversion weighed more than the original"
 msgstr ""
 
-#: avif.php:2006
-msgid "conversions complete."
+#: src/Admin.php:525
+msgid "Not available"
+msgstr ""
+
+#: src/Plugin.php:110
+msgid "v6 (avif.php) is still loaded, so v7 stays off. Remove the require of avif.php from functions.php."
+msgstr ""
+
+#. translators: 1: PHP SAPI name, 2: image format
+#: src/Worker.php:133
+#, php-format
+msgid "This PHP process (%1$s) cannot encode %2$s. Run the queue from the web server, or enable Imagick for this PHP."
+msgstr ""
+
+#. translators: %d: number of attempts
+#: src/Worker.php:189
+#, php-format
+msgid "Set aside after %d attempts: converting this image stops the PHP process (memory or time limit)."
+msgstr ""
+
+#: src/Worker.php:201
+msgid "Source file not found"
+msgstr ""
+
+#: src/Worker.php:389
+msgid "Output file invalid (corrupt header)"
+msgstr ""
+
+#: src/Worker.php:403
+msgid "Could not move the converted file into place"
+msgstr ""
+
+#. translators: 1: number of sizes, 2: error message
+#: src/Worker.php:432
+#, php-format
+msgid "%1$d size failed: %2$s"
+msgid_plural "%1$d sizes failed: %2$s"
+msgstr[0] ""
+msgstr[1] ""
+
+#: src/Worker.php:435
+msgid "Left as it is: the image exceeds the conversion limits (Settings → Limits)."
 msgstr ""
