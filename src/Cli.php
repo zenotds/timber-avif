@@ -20,6 +20,30 @@ final class Cli {
 	}
 
 	/**
+	 * While v6 is still loaded, its own commands keep their names; v7 adds one.
+	 */
+	public static function register_prepare(): void {
+		\WP_CLI::add_command('timber-avif prepare', [self::class, 'prepare']);
+	}
+
+	/**
+	 * Convert the library for v7 while v6 still serves the site.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--all]
+	 * : Keep going until every image is ready.
+	 *
+	 * [--budget=<seconds>]
+	 * : Seconds per pass. Default 60.
+	 */
+	public static function prepare(array $args = [], array $assoc = []): void {
+		\WP_CLI::log(sprintf('v7 is preparing alongside v6. %d of %d images ready.', Worker::count_sources() - Worker::count_pending(), Worker::count_sources()));
+		self::work($args, $assoc);
+		if (!Worker::count_pending()) \WP_CLI::success('Ready: remove the require of avif.php from functions.php and v7 takes over.');
+	}
+
+	/**
 	 * Format, engine and how much of the library is ready.
 	 */
 	public static function status(): void {
@@ -56,8 +80,9 @@ final class Cli {
 			$result = Worker::run($budget);
 			if ($result['error']) \WP_CLI::error($result['error']);
 			if ($result['busy']) {
-				if (++$waits > 12) \WP_CLI::error('Another worker has held the lock for a minute. Try again later.');
-				\WP_CLI::log('Another worker is running, waiting…');
+				// Long enough for a worker that died holding the lock: it expires on its own.
+				if (++$waits > 40) \WP_CLI::error('Another worker has held the lock for over three minutes. Try again later.');
+				if ($waits === 1) \WP_CLI::log('Another worker is running, waiting for it…');
 				sleep(5);
 				continue;
 			}
@@ -65,7 +90,7 @@ final class Cli {
 			$done += $result['finished'];
 			\WP_CLI::log(sprintf('%d done, %d pending', $done, $result['remaining']));
 			if (!$result['processed']) break;
-		} while ($all && $result['remaining'] > 0);
+		} while ($result['busy'] || ($all && $result['remaining'] > 0));
 
 		\WP_CLI::success(sprintf('%d images processed.', $done));
 	}
@@ -89,13 +114,16 @@ final class Cli {
 	 * [--v6]
 	 * : Delete what v6 left behind instead: photo.avif beside photo.jpg, and .lock files.
 	 *
+	 * [--timber-resizes]
+	 * : With --v6, also delete the JPEGs Timber resized for v6 (photo-640x0-c-default.jpg).
+	 *
 	 * [--yes]
 	 * : Skip the confirmation.
 	 */
 	public static function purge(array $args = [], array $assoc = []): void {
 		$v6 = !empty($assoc['v6']);
 		\WP_CLI::confirm($v6 ? 'Delete every file left by v6?' : 'Delete every generated AVIF and WebP file?', $assoc);
-		$deleted = $v6 ? Tools::purge_v6() : Tools::purge();
+		$deleted = $v6 ? Tools::purge_v6(!empty($assoc['timber-resizes'])) : Tools::purge();
 		if (!$v6) Worker::hint();
 		\WP_CLI::success(sprintf('%d files deleted.', $deleted));
 	}

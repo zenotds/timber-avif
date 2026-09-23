@@ -14,7 +14,8 @@ namespace TimberAVIF;
  *
  *     'avif'  => [ 'photo-640x427.jpg' => ['file' => 'photo-640x427.jpg.avif', 'bytes' => …, 'src_bytes' => …, 'key' => …],
  *                  'photo-scaled.jpg'  => ['skip' => 'larger', 'key' => …, 'at' => …] ],
- *     'crops' => [ '4x1' => [ ['w' => 640, 'h' => 160, 'file' => 'photo-640x160-tavif.jpg'], … ] ],
+ *     'crops' => [ '4x1' => [ ['w' => 640, 'h' => 160, 'file' => 'photo-scaled-640x160-tavif.jpg'], … ] ],
+ *     'extra' => [ ['w' => 160, 'h' => 107, 'file' => 'photo-scaled-160x107-tavif.jpg'] ],  // widths templates asked for
  *     'anim'  => true    // animated source: served as it is
  *
  * Modern files are named after the file they replace plus the new extension. v6 swapped
@@ -27,7 +28,7 @@ final class Index {
 	const RETRY    = '_tavif_retry';    // timestamp: retry transient failures after it
 	const ATTEMPTS = '_tavif_attempts'; // passes started and not finished: a crash counter
 	const ISSUE    = '_tavif_issue';    // last problem worth showing in the admin
-	const RATIO    = '_tavif_ratio';    // one row per crop ratio a template asked for
+	const WANT     = '_tavif_want';     // one row per crop or width a template asked for
 
 	public static function get(int $id): array {
 		$index = get_post_meta($id, self::META, true);
@@ -38,18 +39,29 @@ final class Index {
 		update_post_meta($id, self::META, $index);
 	}
 
-	/** @return string[] */
-	public static function ratios(int $id): array {
-		return array_values(array_unique(array_map('strval', (array) get_post_meta($id, self::RATIO, false))));
+	/**
+	 * What templates asked for beyond the configured widths: a crop ('4x1'), a width for an
+	 * image displayed small ('@320'), or both ('1x1@320').
+	 *
+	 * @return array<int, array{ratio: string, width: int}>
+	 */
+	public static function wants(int $id): array {
+		$wants = [];
+		foreach (array_unique(array_map('strval', (array) get_post_meta($id, self::WANT, false))) as $spec) {
+			[$ratio, $width] = array_pad(explode('@', $spec, 2), 2, '');
+			$wants[] = ['ratio' => $ratio, 'width' => (int) $width];
+		}
+		return $wants;
 	}
 
 	/**
-	 * A template asked for a crop the worker has never built. One row per ratio, so this
-	 * never races the worker writing the index.
+	 * A template asked for something the worker has never built. One row per request, so
+	 * this never races the worker writing the index.
 	 */
-	public static function want_ratio(int $id, string $key): void {
-		if (in_array($key, self::ratios($id), true)) return;
-		add_post_meta($id, self::RATIO, $key);
+	public static function want(int $id, string $ratio, int $width = 0): void {
+		$spec = $ratio . ($width ? '@' . $width : '');
+		if ($spec === '' || in_array($spec, array_map('strval', (array) get_post_meta($id, self::WANT, false)), true)) return;
+		add_post_meta($id, self::WANT, $spec);
 		Worker::stale($id);
 	}
 
@@ -72,6 +84,9 @@ final class Index {
 				if (!empty($crop['file'])) $files[] = $dir . $crop['file'];
 			}
 		}
+		foreach ((array) ($index['extra'] ?? []) as $extra) {
+			if (!empty($extra['file'])) $files[] = $dir . $extra['file'];
+		}
 		return $files;
 	}
 
@@ -88,8 +103,8 @@ final class Index {
 	}
 
 	/**
-	 * Drop every file and every trace, leaving the attachment pending. The crop ratios
-	 * templates asked for are kept: they are still wanted.
+	 * Drop every file and every trace, leaving the attachment pending. What templates asked
+	 * for is kept: it is still wanted.
 	 */
 	public static function forget(int $id): int {
 		$deleted = self::delete_files($id);

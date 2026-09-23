@@ -36,7 +36,10 @@ wp_mkdir_p($work);
 function upload(string $path): int {
 	$tmp = wp_tempnam(basename($path));
 	copy($path, $tmp);
+	// The fixtures' synthetic XMP makes exif_read_data() in WordPress core warn; real exports do not.
+	set_error_handler(fn($no, $msg) => str_contains($msg, 'exif_read_data'), E_WARNING);
 	$id = media_handle_sideload(['name' => basename($path), 'tmp_name' => $tmp], 0);
+	restore_error_handler();
 	if (is_wp_error($id)) throw new RuntimeException($id->get_error_message());
 	return $GLOBALS['tavif_it']['uploaded'][] = $id;
 }
@@ -73,6 +76,7 @@ try {
 	$im->newPseudoImage(4000, 2667, 'plasma:fractal');
 	$p3 = '/System/Library/ColorSync/Profiles/Display P3.icc';
 	if (is_readable($p3)) $im->profileImage('icc', file_get_contents($p3));
+	$im->profileImage('xmp', '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/" dc:creator="tavif-test"/></rdf:RDF></x:xmpmeta>');
 	$im->setImageFormat('jpeg');
 	$im->setImageCompressionQuality(92);
 	$im->writeImage($photo);
@@ -132,6 +136,7 @@ try {
 
 	$avif = new Imagick(dir_of($id) . '/photo-1024x683.jpg.avif');
 	check('the Display P3 profile survives', !is_readable($p3) || isset($avif->getImageProfiles('icc', false)[0]), implode(',', $avif->getImageProfiles('*', false)));
+	check('and nothing else: no EXIF or XMP in the copies', array_diff($avif->getImageProfiles('*', false), ['icc']) === [], implode(',', $avif->getImageProfiles('*', false)));
 	check('dimensions match the JPEG it replaces', $avif->getImageWidth() === 1024 && abs($avif->getImageHeight() - 683) <= 1, $avif->getImageWidth() . 'x' . $avif->getImageHeight());
 
 	$bytes = array_sum(array_column($index['avif'], 'bytes'));
@@ -206,10 +211,78 @@ try {
 	check('its files keep being served', Renderer::sources($legacy_id, [])['modern'] !== null);
 	drain();
 
+	section('Edited in the media modal');
+	require_once ABSPATH . 'wp-admin/includes/image-edit.php';
+	wp_set_current_user(1);
+	$edit_src = "$work/edit.jpg";
+	$im = new Imagick();
+	$im->newImage(3000, 2000, 'blue');
+	$draw = new ImagickDraw();
+	$draw->setFillColor('red');
+	$draw->rectangle(0, 0, 1499, 1999);
+	$im->drawImage($draw);
+	$im->setImageFormat('jpeg');
+	$im->writeImage($edit_src);
+	$edit_id = upload($edit_src);
+	drain();
+	$_REQUEST = $_POST = ['history' => wp_json_encode([['r' => 90]]), 'target' => 'all', 'do' => 'save', 'context' => '', 'postid' => $edit_id];
+	wp_save_image($edit_id);
+	$_REQUEST = $_POST = [];
+	drain();
+	$mismatch = [];
+	foreach (Index::get($edit_id)['avif'] ?? [] as $jpg => $e) {
+		if (empty($e['file'])) continue;
+		$a = wp_getimagesize(dir_of($edit_id) . '/' . $e['file']);
+		$j = wp_getimagesize(dir_of($edit_id) . '/' . $jpg);
+		if (!$a || !$j || abs($a[0] - $j[0]) > 1 || abs($a[1] - $j[1]) > 1) $mismatch[] = "$jpg {$j[0]}x{$j[1]} vs {$a[0]}x{$a[1]}";
+	}
+	check('a rotated image is encoded rotated, from the edited file', !$mismatch && count(Index::get($edit_id)['avif'] ?? []) > 3, implode('; ', $mismatch));
+	$files = array_filter(array_column(Index::get($edit_id)['avif'] ?? [], 'file'));
+	check('its copies are named after the edited files', $files && !array_filter($files, fn($f) => !str_contains($f, '-e1')), implode(', ', $files));
+
+	section('Displayed small');
+	Config::save(['breakpoint_widths' => '480,640,1024,1600'] + Config::all());
+	$small_id = $edit_id;
+	drain();
+	$data = Renderer::sources($small_id, ['max' => 200]);
+	check('max below every width: the smallest is served meanwhile', str_contains($data['srcset'], ' 480w') && substr_count($data['srcset'], 'w,') === 0, $data['srcset']);
+	check('and the width is asked for', in_array(200, array_column(Index::wants($small_id), 'width'), true), wp_json_encode(Index::wants($small_id)));
+	drain();
+	$data = Renderer::sources($small_id, ['max' => 200]);
+	check('once built it is the candidate, in AVIF too', str_contains($data['srcset'], ' 200w') && !str_contains($data['srcset'], ' 480w') && $data['modern'] && str_contains($data['modern']['srcset'], '-tavif.jpg.avif 200w'), $data['srcset'] . ' | ' . ($data['modern']['srcset'] ?? '-'));
+	$sq = Renderer::sources($small_id, ['max' => 160, 'ratio' => '1/1']);
+	drain();
+	$sq = Renderer::sources($small_id, ['max' => 160, 'ratio' => '1/1']);
+	check('the same for a crop', str_contains($sq['srcset'], ' 160w') && $sq['modern'] !== null, $sq['srcset']);
+	Config::reset();
+	drain();
+
+	section('Images in post content');
+	$post_id = wp_insert_post(['post_title' => 'tavif', 'post_status' => 'publish', 'post_content' => '']);
+	$content_id = $webp_id;
+	$large = wp_get_attachment_image($content_id, 'large', false, ['class' => 'alignleft wp-image-' . $content_id]);
+	$thumb = wp_get_attachment_image($content_id, 'thumbnail', false, ['class' => 'wp-image-' . $content_id]);
+	$html = wp_filter_content_tags($large, 'the_content');
+	check('an editor image gets a <picture> with the modern set', str_contains($html, '<picture class="tavif-content" style="display:contents"><source type="image/avif"') && str_contains($html, 'alignleft'), substr($html, 0, 300));
+	check('its <img> is WordPress\'s own, untouched', str_contains($html, $large) || str_contains($html, 'class="alignleft wp-image-' . $content_id));
+	check('a cropped thumbnail is left alone', !str_contains(wp_filter_content_tags($thumb, 'the_content'), '<picture'));
+	Config::save(['content_images' => false] + Config::all());
+	check('and the setting turns it off', !str_contains(wp_filter_content_tags($large, 'the_content'), '<picture'));
+	Config::reset();
+	wp_delete_post($post_id, true);
+
+	section('v6 API for themes');
+	check('the TimberAVIF class exists again, as v7', class_exists('TimberAVIF') && version_compare(TimberAVIF::VERSION, '7', '>='));
+	$sub = wp_get_attachment_image_url($webp_id, 'tavif-640');
+	$avif_url = TimberAVIF::filter_toavif($sub);
+	check('filter_toavif() on a sub-size URL returns that file\'s AVIF', $avif_url === $sub . '.avif', "$sub → $avif_url");
+	check('image_sources() is v7\'s', TimberAVIF::image_sources($webp_id)['modern'] !== null);
+	check('an unknown URL passes through', TimberAVIF::filter_toavif('https://example.com/x.jpg') === 'https://example.com/x.jpg');
+
 	section('Settings change');
 	$fp = Config::fingerprint();
 	Config::save(['avif_quality' => 50] + Config::all());
-	check('only the changed value is stored', get_option(Config::OPTION) === ['avif_quality' => 50], wp_json_encode(get_option(Config::OPTION)));
+	check('only the changed value is stored', get_option(Config::OPTION) === ['_v' => 7, 'avif_quality' => 50], wp_json_encode(get_option(Config::OPTION)));
 	check('the fingerprint moved', Config::fingerprint() !== $fp);
 	check('the whole library is pending again', Worker::count_pending() === count($GLOBALS['tavif_it']['uploaded']), (string) Worker::count_pending());
 	check('old files are still served meanwhile', Renderer::sources($id, [])['modern'] !== null);
@@ -219,7 +292,7 @@ try {
 
 	section('Crop on request');
 	$data = Renderer::sources($id, ['ratio' => '4/1']);
-	check('first request registers the ratio', in_array('4x1', Index::ratios($id), true), implode(',', Index::ratios($id)));
+	check('first request registers the ratio', in_array('4x1', array_column(Index::wants($id), 'ratio'), true), wp_json_encode(Index::wants($id)));
 	check('meanwhile: uncropped files, 4:1 box', (int) round($data['width'] / $data['height']) === 4 && !str_contains($data['src'], 'tavif'), $data['src'] . ' ' . $data['width'] . 'x' . $data['height']);
 	check('the attachment is pending', Worker::count_pending() === 1);
 	drain();
@@ -248,9 +321,15 @@ try {
 	Lock::release('test');
 
 	section('Migration from v6');
-	update_option(Config::OPTION, ['avif_quality' => 75, 'webp_quality' => 85, 'pregenerate_widths' => '640,1024', 'max_inline_conversions' => 10, 'only_if_smaller' => true]);
+	// As v6 left it: every default written on first run, 65 from 6.0, one real choice.
+	update_option(Config::OPTION, ['avif_quality' => 65, 'webp_quality' => 85, 'jpeg_quality' => 95, 'pregenerate_widths' => '640,1024', 'max_inline_conversions' => 10, 'only_if_smaller' => true]);
+	check('before migrating, v6 frozen defaults already read as defaults', Config::quality('avif') === 75 && (int) Config::get('jpeg_quality') === 82 && Config::quality('webp') === 85);
+	$fp_v6 = Config::fingerprint();
 	Config::migrate();
-	check('defaults and obsolete keys dropped, choices kept', get_option(Config::OPTION) === ['webp_quality' => 85], wp_json_encode(get_option(Config::OPTION)));
+	check('defaults, v6 defaults and obsolete keys dropped, choices kept', get_option(Config::OPTION) === ['_v' => 7, 'webp_quality' => 85], wp_json_encode(get_option(Config::OPTION)));
+	check('same fingerprint before and after: nothing re-encoded at the switch', Config::fingerprint() === $fp_v6);
+	Config::save(['jpeg_quality' => 95] + Config::all());
+	check('a value chosen in v7 that equals an old v6 default is kept', (int) Config::get('jpeg_quality') === 95);
 	Config::reset();
 
 	$dir = dir_of($id);

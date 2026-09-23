@@ -17,6 +17,8 @@ spl_autoload_register(static function (string $class): void {
 	if (str_starts_with($class, 'TimberAVIF\\')) require dirname(__DIR__) . '/src/' . str_replace('\\', '/', substr($class, 11)) . '.php';
 });
 
+function wp_basename(string $path): string { return basename($path); }
+
 $failures = 0;
 $count = 0;
 function check(string $name, $actual, $expected): void {
@@ -117,6 +119,17 @@ check('85 KB → 97 KB discarded', Engine::exceeds_tolerance(85 * $kb, 97 * $kb)
 check('5 MB → +100 KB discarded', Engine::exceeds_tolerance(5000 * $kb, 5100 * $kb), true);
 check('smaller is always kept', Engine::exceeds_tolerance(100 * $kb, 40 * $kb), false);
 
+/* ── Sizes: extra widths and proportions ── */
+
+$c = Sizes::candidates(meta([480, 640, 1024]), [480, 640, 1024], 200, [['w' => 200, 'h' => 133, 'file' => 'photo-scaled-200x133-tavif.jpg']]);
+check('an extra width asked for by a template is a candidate', $w($c), [200]);
+check('with no max it joins the set', $w(Sizes::candidates(meta([480, 640]), [480, 640], null, [['w' => 200, 'h' => 133, 'file' => 'x.jpg']])), [200, 480, 640, 2560]);
+$m = meta([640], 2560, 1707, ['thumbnail' => ['file' => 'photo-150x150.jpg', 'width' => 150, 'height' => 150]]);
+check('the full file is proportional', Sizes::is_proportional($m, 'photo-scaled.jpg'), true);
+check('an uncropped sub-size is proportional', Sizes::is_proportional($m, 'photo-640x427.jpg'), true);
+check('a square thumbnail is not', Sizes::is_proportional($m, 'photo-150x150.jpg'), false);
+check('an unknown file is not', Sizes::is_proportional($m, 'other.jpg'), false);
+
 /* ── Config ── */
 
 check('widths: sorted, unique, capped', Config::parse_widths('1024, 640,640 99999 8'), [640, 1024, 2560]);
@@ -125,6 +138,18 @@ check('an unknown format falls back to auto', $clean['format_mode'], 'auto');
 check('quality clamped', [$clean['avif_quality'], $clean['jpeg_quality']], [100, 60]);
 check('checkbox off', $clean['only_if_smaller'], false);
 check('empty widths fall back to the defaults', $clean['breakpoint_widths'], Config::defaults()['breakpoint_widths']);
+
+$normalize = new ReflectionMethod(Config::class, 'normalize');
+$normalize->setAccessible(true);
+check('a v6 option: its frozen defaults read as defaults', $normalize->invoke(null, ['avif_quality' => 65, 'jpeg_quality' => 95, 'webp_quality' => 85, 'pregenerate_widths' => '640']), ['webp_quality' => 85]);
+check('a v7 option: every stored value is a choice', $normalize->invoke(null, ['_v' => 7, 'jpeg_quality' => 95]), ['jpeg_quality' => 95]);
+check('values equal to today\'s defaults are dropped either way', $normalize->invoke(null, ['_v' => 7, 'avif_quality' => 75, 'only_if_smaller' => '1']), []);
+
+/* ── Bootstrap outside WordPress ── */
+
+// What vendor/autoload.php plus a PHPUnit bootstrap does before WordPress is loaded.
+require dirname(__DIR__) . '/timber-avif.php';
+check('loading the package without WordPress is not a fatal error', class_exists(\TimberAVIF\Plugin::class), true);
 
 echo $failures ? "\n$failures of $count checks failed.\n" : "$count checks passed.\n";
 exit($failures ? 1 : 0);

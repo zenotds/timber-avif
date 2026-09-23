@@ -17,9 +17,6 @@
 	"autoload": {
 		"psr-4": {
 			"TimberAVIF\\": "src/"
-		},
-		"files": [
-			"timber-avif.php"
-		]
+		}
 	}
 }

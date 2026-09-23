@@ -84,3 +84,4 @@
 	.tavif-field { grid-template-columns: 1fr; gap: 6px; }
 	.tavif-field-label { padding-top: 0; }
 }
+.tavif-tool-option { display: block; margin: -8px 0 14px; font-size: 12px; color: #6b7280; line-height: 1.5; }

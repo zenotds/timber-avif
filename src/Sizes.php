@@ -67,9 +67,10 @@ final class Sizes {
 	 * @param array $meta   Attachment metadata: width, height, file, sizes.
 	 * @param int[] $widths Configured (or per-call) widths.
 	 * @param ?int  $max    Cap for images displayed small.
+	 * @param array $extra  Uncropped widths a template asked for (Index 'extra'): always candidates.
 	 * @return array<int, array{w: int, h: int, file: string}> Ascending by width.
 	 */
-	public static function candidates(array $meta, array $widths, ?int $max = null): array {
+	public static function candidates(array $meta, array $widths, ?int $max = null, array $extra = []): array {
 		$fw = (int) ($meta['width'] ?? 0);
 		$fh = (int) ($meta['height'] ?? 0);
 		$file = basename((string) ($meta['file'] ?? ''));
@@ -94,6 +95,11 @@ final class Sizes {
 		// else WordPress made, until the worker builds the rest.
 		if (count($chosen) < count($wanted)) $chosen += $proportional;
 
+		foreach ($extra as $e) {
+			$w = (int) ($e['w'] ?? 0);
+			if ($w && $w < $fw && !empty($e['file'])) $chosen[$w] ??= ['w' => $w, 'h' => (int) ($e['h'] ?? 0), 'file' => (string) $e['file']];
+		}
+
 		$chosen = array_filter($chosen, fn($c) => $c['w'] <= Config::MAX_GENERATED_WIDTH);
 		// The full file covers high-density screens, unless it is past what is ever generated.
 		if ($fw <= Config::MAX_GENERATED_WIDTH) $chosen[$fw] = ['w' => $fw, 'h' => $fh, 'file' => $file];
@@ -103,19 +109,42 @@ final class Sizes {
 	}
 
 	/**
+	 * Is this file of the attachment shown at the full image's proportions — the full file,
+	 * the original upload, or a sub-size that was not cropped?
+	 */
+	public static function is_proportional(array $meta, string $file): bool {
+		$fw = (int) ($meta['width'] ?? 0);
+		$fh = (int) ($meta['height'] ?? 0);
+		if (!$fw || !$fh || $file === '') return false;
+		if ($file === wp_basename((string) ($meta['file'] ?? '')) || $file === ($meta['original_image'] ?? null)) return true;
+
+		foreach ((array) ($meta['sizes'] ?? []) as $size) {
+			if (($size['file'] ?? '') !== $file) continue;
+			$w = (int) ($size['width'] ?? 0);
+			$h = (int) ($size['height'] ?? 0);
+			return $w && $h && abs($h - $w * $fh / $fw) <= 1.5;
+		}
+		return false;
+	}
+
+	/**
 	 * Candidates for a server-side crop, from the index the worker wrote.
 	 *
 	 * @param array<int, array{w: int, h: int, file: string}> $crops
 	 */
 	public static function crop_candidates(array $crops, array $widths, ?int $max = null): array {
 		$by_width = [];
+		$asked = [];
 		foreach ($crops as $c) {
-			if (!empty($c['file']) && !empty($c['w'])) $by_width[(int) $c['w']] = ['w' => (int) $c['w'], 'h' => (int) $c['h'], 'file' => (string) $c['file']];
+			if (empty($c['file']) || empty($c['w'])) continue;
+			$by_width[(int) $c['w']] = ['w' => (int) $c['w'], 'h' => (int) $c['h'], 'file' => (string) $c['file']];
+			// Built because a template displays this crop small: a candidate whatever the configured widths.
+			if (!empty($c['asked'])) $asked[(int) $c['w']] = true;
 		}
 		ksort($by_width);
 		// The largest crop is the "full" one: always kept, like the full file of an uncropped image.
 		$top = $by_width ? end($by_width) : null;
-		$chosen = array_intersect_key($by_width, array_flip($widths));
+		$chosen = array_intersect_key($by_width, array_flip($widths) + $asked);
 		if ($top) $chosen[$top['w']] = $top;
 		ksort($chosen);
 		return self::limit(array_values($chosen), $max);

@@ -31,7 +31,17 @@ final class Config {
 	// so there is no per-page budget and no list of widths to build ahead of it.
 	const OBSOLETE = ['pregenerate_breakpoints', 'pregenerate_widths', 'max_inline_conversions'];
 
+	// Defaults of v6 that v7 changed. v6 wrote every default into the database on its first
+	// run, so a v6 option holding one of these is a frozen default, not a choice: it is read
+	// as the v7 default. 65 is the AVIF quality 6.0–6.1.1 shipped with by mistake.
+	const V6_DEFAULTS = ['avif_quality' => [65], 'jpeg_quality' => [95]];
+
+	// Marks an option written by v7, which holds choices only. An option without it was
+	// written by v6.
+	const SCHEMA = '_v';
+
 	private static ?array $settings = null;
+	private static ?array $widths = null;
 
 	public static function defaults(): array {
 		return [
@@ -39,22 +49,36 @@ final class Config {
 			// Quality scales are not comparable across codecs: AVIF 75 already sits above JPEG 95 in perceived quality.
 			'avif_quality'         => 75,
 			'webp_quality'         => 90,
-			'jpeg_quality'         => 95,
+			// WordPress's own default. v6 used 95 because every AVIF was transcoded from these JPEGs; v7
+			// encodes from the uploaded file, so the JPEG is only the fallback, and at 95 it was
+			// two thirds of the disk space v7 adds.
+			'jpeg_quality'         => 82,
 			// One shared set of widths for the whole theme, so the same photo reuses the same files everywhere.
 			'breakpoint_widths'    => '320,480,640,768,1024,1280,1600,1920,2560',
 			'max_upload_dimension' => 2560,
 			'max_dimension'        => 4096,
 			'max_file_size'        => 50,
 			'only_if_smaller'      => true,
+			// Images in post content and ACF WYSIWYG fields get a <picture> too.
+			'content_images'       => true,
 		];
 	}
 
 	public static function all(): array {
 		if (self::$settings === null) {
 			$saved = get_option(self::OPTION, []);
-			self::$settings = array_merge(self::defaults(), is_array($saved) ? array_intersect_key($saved, self::defaults()) : []);
+			self::$settings = array_merge(self::defaults(), self::normalize(is_array($saved) ? $saved : []));
 		}
 		return self::$settings;
+	}
+
+	/**
+	 * Hooked on every write of the option (Plugin::boot), not only this class's own: while v7
+	 * prepares next to v6, v6's settings form writes the same option.
+	 */
+	public static function forget(): void {
+		self::$settings = null;
+		self::$widths = null;
 	}
 
 	public static function get(string $key) {
@@ -63,33 +87,50 @@ final class Config {
 
 	public static function is_default(string $key): bool {
 		$saved = get_option(self::OPTION, []);
-		return !is_array($saved) || !array_key_exists($key, $saved);
+		return !array_key_exists($key, self::normalize(is_array($saved) ? $saved : []));
 	}
 
 	/**
 	 * Store a submitted form: sanitized, and reduced to what differs from the defaults.
 	 */
 	public static function save(array $input): void {
-		update_option(self::OPTION, self::diff(self::sanitize($input)));
-		self::$settings = null;
+		update_option(self::OPTION, [self::SCHEMA => 7] + self::diff(self::sanitize($input)));
+		self::forget();
 	}
 
 	public static function reset(): void {
 		delete_option(self::OPTION);
-		self::$settings = null;
+		self::forget();
 	}
 
 	/**
-	 * Once, on the first v7 request: drop the settings v7 does not read, and the values
-	 * v6 froze at their defaults. A value that differs from today's default was chosen
-	 * by someone, or frozen by an older default, and stays as it is either way.
+	 * Once, when v7 takes over from v6: store the option the way v7 reads it, so that from
+	 * then on every stored value is a choice.
 	 */
 	public static function migrate(): void {
 		$saved = get_option(self::OPTION, []);
-		if (!is_array($saved) || !$saved) return;
-		$saved = array_diff_key($saved, array_flip(self::OBSOLETE));
-		update_option(self::OPTION, self::diff(self::sanitize(array_merge(self::defaults(), $saved))));
-		self::$settings = null;
+		if (!is_array($saved) || !$saved || !empty($saved[self::SCHEMA])) return;
+		update_option(self::OPTION, [self::SCHEMA => 7] + self::normalize($saved));
+		self::forget();
+	}
+
+	/**
+	 * The choices in a stored option: known keys only, sanitized, without the values that are
+	 * defaults. For an option v6 wrote, its frozen defaults count as defaults too.
+	 *
+	 * Reading and migrating go through the same function, so the settings in effect are the
+	 * same before and after the migration — which is what lets v7 prepare the library while
+	 * v6 still runs without re-encoding it all when it takes over.
+	 */
+	private static function normalize(array $saved): array {
+		$from_v6 = empty($saved[self::SCHEMA]);
+		$saved = array_intersect_key($saved, self::defaults());
+		$clean = array_intersect_key(self::sanitize($saved + self::defaults()), $saved);
+
+		return array_filter($clean, function ($value, $key) use ($from_v6) {
+			if ($value === self::defaults()[$key]) return false;
+			return !($from_v6 && in_array($value, self::V6_DEFAULTS[$key] ?? [], true));
+		}, ARRAY_FILTER_USE_BOTH);
 	}
 
 	public static function sanitize(array $input): array {
@@ -108,6 +149,7 @@ final class Config {
 			'max_dimension'        => $int('max_dimension', 512, 20000),
 			'max_file_size'        => $int('max_file_size', 1, 500),
 			'only_if_smaller'      => filter_var($input['only_if_smaller'] ?? $d['only_if_smaller'], FILTER_VALIDATE_BOOLEAN),
+			'content_images'       => filter_var($input['content_images'] ?? $d['content_images'], FILTER_VALIDATE_BOOLEAN),
 		];
 	}
 
@@ -128,7 +170,8 @@ final class Config {
 
 	/** @return int[] */
 	public static function widths(): array {
-		return self::parse_widths((string) self::get('breakpoint_widths'));
+		if (self::$settings === null) self::$widths = null;
+		return self::$widths ??= self::parse_widths((string) self::get('breakpoint_widths'));
 	}
 
 	/**

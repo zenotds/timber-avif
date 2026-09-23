@@ -27,39 +27,35 @@ final class Admin {
 		return add_query_arg($args, admin_url('options-general.php?page=' . self::SLUG));
 	}
 
+	/**
+	 * Inline, not by URL: the package can sit in a theme, in vendor/ or behind a Composer
+	 * symlink, and a URL worked out from its path broke in the last case (404). Both files
+	 * are small and load on two admin screens only.
+	 */
 	public static function enqueue(string $hook): void {
-		$base = self::asset_url();
-		if ($hook === 'upload.php') {
-			wp_enqueue_style('timber-avif-admin', $base . 'assets/admin.css', [], Plugin::VERSION);
-		}
-		if ($hook !== 'settings_page_' . self::SLUG) return;
+		if ($hook !== 'upload.php' && $hook !== 'settings_page_' . self::SLUG) return;
 
-		wp_enqueue_style('timber-avif-admin', $base . 'assets/admin.css', [], Plugin::VERSION);
-		wp_enqueue_script('timber-avif-admin', $base . 'assets/admin.js', [], Plugin::VERSION, true);
-		wp_localize_script('timber-avif-admin', 'timberAvif', [
+		wp_register_style('timber-avif-admin', false, [], Plugin::VERSION);
+		wp_enqueue_style('timber-avif-admin');
+		wp_add_inline_style('timber-avif-admin', (string) file_get_contents(TIMBER_AVIF_DIR . '/assets/admin.css'));
+
+		if ($hook === 'upload.php') return;
+
+		wp_register_script('timber-avif-admin', false, [], Plugin::VERSION, true);
+		wp_enqueue_script('timber-avif-admin');
+		wp_add_inline_script('timber-avif-admin', 'window.timberAvif = ' . wp_json_encode([
 			'ajax'  => admin_url('admin-ajax.php'),
 			'nonce' => wp_create_nonce('timber_avif_work'),
 			'i18n'  => [
 				'processing' => __('Processing…', 'timber-avif'),
 				'waiting'    => __('Another worker is running, waiting…', 'timber-avif'),
+				/* translators: %d: number of images */
 				'remaining'  => __('%d remaining', 'timber-avif'),
 				'done'       => __('Queue empty.', 'timber-avif'),
 				'failed'     => __('Request failed.', 'timber-avif'),
 				'start'      => __('Process now', 'timber-avif'),
 			],
-		]);
-	}
-
-	/**
-	 * The package can sit in a theme or in vendor/: its URL is worked out from its path.
-	 */
-	private static function asset_url(): string {
-		$dir = wp_normalize_path(TIMBER_AVIF_DIR);
-		foreach ([[get_stylesheet_directory(), get_stylesheet_directory_uri()], [get_template_directory(), get_template_directory_uri()]] as [$path, $uri]) {
-			$path = wp_normalize_path($path);
-			if (str_starts_with($dir, $path)) return trailingslashit($uri . substr($dir, strlen($path)));
-		}
-		return trailingslashit(content_url(substr($dir, strlen(wp_normalize_path(WP_CONTENT_DIR)))));
+		]) . ";\n" . (string) file_get_contents(TIMBER_AVIF_DIR . '/assets/admin.js'));
 	}
 
 	/* ─────────────────────────────────────────────
@@ -174,7 +170,7 @@ final class Admin {
 						</div>
 					</div>
 				<?php endforeach; ?>
-				<p class="tavif-hint tavif-hint--block"><?php esc_html_e('Quality scales are not comparable across formats: AVIF 75 matches JPEG 95. Changing the quality of the served format re-encodes the library in the background; the current files are served until each is replaced.', 'timber-avif'); ?></p>
+				<p class="tavif-hint tavif-hint--block"><?php esc_html_e('Quality scales are not comparable across formats: AVIF 75 already matches JPEG 95. The JPEG is only the fallback, for browsers without the modern format. Changing the quality of the served format re-encodes the library in the background; the current files are served until each is replaced.', 'timber-avif'); ?></p>
 			</div>
 
 			<div class="tavif-block">
@@ -186,6 +182,23 @@ final class Admin {
 					<div class="tavif-field-input">
 						<input type="text" id="tavif-widths" name="breakpoint_widths" value="<?php echo esc_attr($s['breakpoint_widths']); ?>" class="regular-text" /><?php echo $default('breakpoint_widths'); ?>
 						<p class="tavif-hint"><?php esc_html_e('Comma-separated. Each size is one more file per image, built at upload. A size added here is built for the existing library in the background.', 'timber-avif'); ?></p>
+					</div>
+				</div>
+			</div>
+
+			<div class="tavif-block">
+				<h3><?php esc_html_e('Content', 'timber-avif'); ?></h3>
+
+				<div class="tavif-field">
+					<label class="tavif-field-label"><?php esc_html_e('Editor images', 'timber-avif'); ?></label>
+					<div class="tavif-field-input">
+						<label class="tavif-toggle">
+							<input type="hidden" name="content_images" value="0" />
+							<input type="checkbox" name="content_images" value="1" <?php checked($s['content_images']); ?> />
+							<span class="slider"></span>
+							<span class="toggle-label"><?php esc_html_e('Serve images in post content and WYSIWYG fields in the modern format too', 'timber-avif'); ?></span>
+						</label>
+						<p class="tavif-hint"><?php esc_html_e('The <img> WordPress writes is wrapped in a <picture> that makes no box of its own, so the layout does not change. Cropped sizes such as thumbnails are left as they are.', 'timber-avif'); ?></p>
 					</div>
 				</div>
 			</div>
@@ -238,7 +251,7 @@ final class Admin {
 			'rebuild' => [__('Rebuild everything', 'timber-avif'), __('Encode every image again with the current settings — after upgrading the server\'s image libraries, for instance. The current files are served until each is replaced.', 'timber-avif'), __('Rebuild', 'timber-avif'), __('Re-encode the whole library in the background?', 'timber-avif')],
 			'clear_cache' => [__('Clear cache', 'timber-avif'), __('Detect the conversion engines available on this server again, and retry the conversions that failed.', 'timber-avif'), __('Clear', 'timber-avif'), ''],
 			'purge' => [__('Delete conversions', 'timber-avif'), __('Deletes every AVIF and WebP file and every crop Timber AVIF made. Originals are untouched; the files are rebuilt in the background, and until then the originals are served.', 'timber-avif'), __('Delete', 'timber-avif'), __('Delete every generated AVIF and WebP file?', 'timber-avif')],
-			'purge_v6' => [__('Remove v6 files', 'timber-avif'), __('Deletes the copies v6 wrote next to each file (photo.avif beside photo.jpg) and its leftover .lock files. v7 names its files differently and never reads those.', 'timber-avif'), __('Remove', 'timber-avif'), __('Delete every file left by v6?', 'timber-avif')],
+			'purge_v6' => [__('Remove v6 files', 'timber-avif'), __('Deletes the copies v6 wrote next to each file (photo.avif beside photo.jpg) and its leftover .lock files. v7 names its files differently and never reads those.', 'timber-avif'), __('Remove', 'timber-avif'), __('Delete every file left by v6?', 'timber-avif'), 'timber_resizes'],
 		];
 		?>
 		<div class="tavif-tools-grid">
@@ -251,7 +264,7 @@ final class Admin {
 					<p class="description tavif-progress-status"></p>
 				</div>
 			</div>
-			<?php foreach ($tools as $key => [$title, $text, $button, $confirm]) : ?>
+			<?php foreach ($tools as $key => $tool) : [$title, $text, $button, $confirm] = $tool; $option = $tool[4] ?? ''; ?>
 				<div class="tavif-tool-card">
 					<h3><?php echo esc_html($title); ?></h3>
 					<p><?php echo esc_html($text); ?></p>
@@ -259,6 +272,9 @@ final class Admin {
 						<?php wp_nonce_field('timber_avif_tools'); ?>
 						<input type="hidden" name="action" value="timber_avif_tools" />
 						<input type="hidden" name="subaction" value="<?php echo esc_attr($key); ?>" />
+						<?php if ($option === 'timber_resizes') : ?>
+							<label class="tavif-tool-option"><input type="checkbox" name="timber_resizes" value="1" /> <?php esc_html_e('Also delete the JPEGs Timber resized for v6 (-640x0-c-default.jpg): v7 does not use them, and Timber rebuilds any a template still asks for with |resize.', 'timber-avif'); ?></label>
+						<?php endif; ?>
 						<button type="submit" class="button<?php echo str_starts_with($key, 'purge') ? ' tavif-danger' : ''; ?>"<?php if ($confirm) : ?> onclick="return confirm('<?php echo esc_js($confirm); ?>');"<?php endif; ?>><?php echo esc_html($button); ?></button>
 					</form>
 				</div>
@@ -384,7 +400,7 @@ final class Admin {
 				$args['purged'] = Tools::purge();
 				break;
 			case 'purge_v6':
-				$args['purged'] = Tools::purge_v6();
+				$args['purged'] = Tools::purge_v6(!empty($_POST['timber_resizes']));
 				break;
 		}
 
@@ -504,19 +520,22 @@ final class Admin {
 		if ($format) {
 			$bytes = 0;
 			$source = 0;
-			$ids = array_map('intval', $wpdb->get_col($wpdb->prepare("SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = %s", Index::META)));
-			foreach (array_chunk($ids, 500) as $chunk) {
-				update_meta_cache('post', $chunk);
-				foreach ($chunk as $id) {
-					foreach ((array) (Index::get($id)[$format] ?? []) as $entry) {
+			// The index rows alone, a chunk at a time: loading every attachment's meta for this
+			// would pull in all their metadata too.
+			$last = 0;
+			do {
+				$rows = $wpdb->get_results($wpdb->prepare("SELECT meta_id, meta_value FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_id > %d ORDER BY meta_id LIMIT 500", Index::META, $last));
+				foreach ($rows as $row) {
+					$last = (int) $row->meta_id;
+					$index = maybe_unserialize($row->meta_value);
+					foreach ((array) ($index[$format] ?? []) as $entry) {
 						if (empty($entry['file'])) continue;
 						$stats['files']++;
 						$bytes += (int) ($entry['bytes'] ?? 0);
 						$source += (int) ($entry['src_bytes'] ?? 0);
 					}
-					wp_cache_delete($id, 'post_meta');
 				}
-			}
+			} while (count($rows) === 500);
 			$stats['saved'] = max(0, $source - $bytes);
 			$stats['saved_pct'] = $source > 0 ? (int) round($stats['saved'] / $source * 100) : 0;
 		}

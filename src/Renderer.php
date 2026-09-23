@@ -86,6 +86,13 @@ final class Renderer {
 	 * @param ?string $format 'avif', 'webp', or null for whatever is served.
 	 */
 	public static function url($image, $width = null, $height = null, ?string $format = null): string {
+		// The URL of one particular file — a sub-size in a srcset, as v6's |toavif took it —
+		// maps to that file's own modern copy.
+		if (is_string($image) && $width === null && $height === null) {
+			$exact = self::file_url($image, $format);
+			if ($exact !== null) return $exact;
+		}
+
 		$id = self::attachment_id($image);
 		if (!$id) return self::string_url($image);
 
@@ -185,14 +192,53 @@ final class Renderer {
 		return $by_url[$url] ??= (int) attachment_url_to_postid($url);
 	}
 
+	/**
+	 * The modern copy of one file of an attachment, or the file itself when it has none.
+	 * Null when the URL is not a file of a library image.
+	 */
+	public static function file_url(string $url, ?string $format = null): ?string {
+		$format ??= Config::format();
+		$path = (string) wp_parse_url($url, PHP_URL_PATH);
+		$file = wp_basename($path);
+		if ($file === '') return null;
+
+		static $by_url = [];
+		if (!array_key_exists($url, $by_url)) {
+			$id = (int) attachment_url_to_postid($url);
+			// A sub-size: its attachment is the file without the -WxH, or its -scaled copy.
+			if (!$id && preg_match('/^(.+?)-\d+x\d+(?:-tavif)?(\.\w+)$/', $url, $m)) {
+				$id = (int) attachment_url_to_postid($m[1] . $m[2]) ?: (int) attachment_url_to_postid($m[1] . '-scaled' . $m[2]);
+				if (!$id && str_ends_with($m[1], '-scaled')) $id = (int) attachment_url_to_postid($m[1] . $m[2]);
+			}
+			$by_url[$url] = $id;
+		}
+		if (!$by_url[$url]) return null;
+
+		$entry = $format ? (Index::get($by_url[$url])[$format][$file] ?? null) : null;
+		if (empty($entry['file'])) return $url;
+		$bare = (string) strtok($url, '?#');
+		return substr($bare, 0, (int) strrpos($bare, '/') + 1) . $entry['file'];
+	}
+
 	private static function candidates(int $id, $meta, array $index, array $widths, ?int $max, ?array $ratio): array {
 		if ($ratio) {
 			$crops = (array) ($index['crops'][$ratio['key']] ?? []);
-			if ($crops) return Sizes::crop_candidates($crops, $widths, $max);
+			if ($crops) return self::with_small($id, $ratio['key'], Sizes::crop_candidates($crops, $widths, $max), $max);
 			// First time a template asks for this crop: one meta row, then the worker builds it.
-			Index::want_ratio($id, $ratio['key']);
+			Index::want($id, $ratio['key']);
+			if ($max && $max < min(Config::widths() ?: [PHP_INT_MAX])) Index::want($id, $ratio['key'], $max);
 		}
-		return Sizes::candidates((array) $meta, $widths, $max);
+		return self::with_small($id, '', Sizes::candidates((array) $meta, $widths, $max, (array) ($index['extra'] ?? [])), $max);
+	}
+
+	/**
+	 * `max` below every candidate — a thumbnail on a site whose smallest width is 480 — asks
+	 * the worker for that width. v6 made it on the spot; until the worker has, the smallest
+	 * candidate is served.
+	 */
+	private static function with_small(int $id, string $ratio, array $candidates, ?int $max): array {
+		if ($max && $candidates && $candidates[0]['w'] > $max) Index::want($id, $ratio, $max);
+		return $candidates;
 	}
 
 	/**

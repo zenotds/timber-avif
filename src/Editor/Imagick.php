@@ -42,6 +42,7 @@ class Imagick extends \WP_Image_Editor_Imagick {
 			$resized = $this->resize($width, $height, $crop);
 			if (is_wp_error($resized)) $saved = $resized;
 		}
+		if ($saved === null && ($mime === 'image/avif' || $mime === 'image/webp')) $this->keep_colour_profile_only();
 		$saved ??= $this->_save($this->image, $dest, $mime);
 
 		$this->image->clear();
@@ -50,6 +51,22 @@ class Imagick extends \WP_Image_Editor_Imagick {
 		$this->image = $orig_image;
 
 		return $saved;
+	}
+
+	/**
+	 * WordPress keeps EXIF, XMP and IPTC in what it writes, which suits the JPEG sub-sizes.
+	 * In the modern copies they are about 2 KB per file — 8% of an AVIF up to 480px wide on
+	 * a real site — for data no browser reads. The colour profile stays: without it a
+	 * Display P3 photo changes colour. Provenance is read from the original, not from these.
+	 */
+	private function keep_colour_profile_only(): void {
+		try {
+			foreach (array_keys($this->image->getImageProfiles('*', true)) as $name) {
+				if ($name !== 'icc' && $name !== 'icm') $this->image->removeImageProfile($name);
+			}
+		} catch (\Exception $e) {
+			// Written with the metadata, then: heavier, not wrong.
+		}
 	}
 
 	/**

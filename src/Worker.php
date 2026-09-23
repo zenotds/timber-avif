@@ -35,10 +35,10 @@ final class Worker {
 	 * Scheduling
 	 * ───────────────────────────────────────────── */
 
-	public static function stale(int $id): void {
+	public static function stale(int $id, int $delay = 0): void {
 		delete_post_meta($id, Index::STAMP);
 		self::hint();
-		self::wake();
+		self::wake($delay);
 	}
 
 	public static function hint(): void {
@@ -84,34 +84,46 @@ final class Worker {
 	/** @return int[] Newest first: a fresh upload matters more than the back catalogue. */
 	public static function pending(int $limit): array {
 		if (!Config::format()) return [];
-		$query = new \WP_Query(self::pending_query(['posts_per_page' => $limit, 'no_found_rows' => true]));
-		return array_map('intval', $query->posts);
+		global $wpdb;
+		return array_map('intval', $wpdb->get_col(self::pending_sql('DISTINCT p.ID') . ' ORDER BY p.ID DESC LIMIT ' . max(1, $limit)));
 	}
 
 	public static function count_pending(): int {
 		if (!Config::format()) return 0;
-		$query = new \WP_Query(self::pending_query(['posts_per_page' => 1]));
-		return (int) $query->found_posts;
+		global $wpdb;
+		return (int) $wpdb->get_var(self::pending_sql('COUNT(DISTINCT p.ID)'));
 	}
 
-	private static function pending_query(array $args): array {
-		return $args + [
-			'post_type'              => 'attachment',
-			'post_status'            => 'any',
-			'post_mime_type'         => Config::SOURCE_MIMES,
-			'fields'                 => 'ids',
-			'orderby'                => 'ID',
-			'order'                  => 'DESC',
-			'suppress_filters'       => true,
-			'update_post_meta_cache' => false,
-			'update_post_term_cache' => false,
-			'meta_query'             => [
-				'relation' => 'OR',
-				['key' => Index::STAMP, 'compare' => 'NOT EXISTS'],
-				['key' => Index::STAMP, 'value' => Config::fingerprint(), 'compare' => '!='],
-				['key' => Index::RETRY, 'value' => time(), 'compare' => '<=', 'type' => 'NUMERIC'],
-			],
-		];
+	/** Images the worker would convert, pending or not. */
+	public static function count_sources(): int {
+		global $wpdb;
+		return (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} p WHERE " . self::sources_where());
+	}
+
+	/**
+	 * Written by hand rather than as a WP_Query meta_query. WordPress joins each clause of
+	 * an OR meta_query on post_id alone, so every attachment is multiplied by all its meta
+	 * rows once per clause: 49 ms for 1,480 images on a real site, growing with both the
+	 * library and the rows this package adds. With the key in each join it is 0.6 ms.
+	 */
+	private static function pending_sql(string $select): string {
+		global $wpdb;
+		return $wpdb->prepare(
+			"SELECT $select FROM {$wpdb->posts} p
+			LEFT JOIN {$wpdb->postmeta} s ON s.post_id = p.ID AND s.meta_key = %s
+			LEFT JOIN {$wpdb->postmeta} r ON r.post_id = p.ID AND r.meta_key = %s
+			WHERE " . self::sources_where() . "
+			AND (s.meta_id IS NULL OR s.meta_value <> %s OR CAST(r.meta_value AS SIGNED) <= %d)",
+			Index::STAMP,
+			Index::RETRY,
+			Config::fingerprint(),
+			time()
+		);
+	}
+
+	private static function sources_where(): string {
+		$mimes = implode(',', array_map(fn($m) => "'" . esc_sql($m) . "'", Config::SOURCE_MIMES));
+		return "p.post_type = 'attachment' AND p.post_status NOT IN ('trash', 'auto-draft') AND p.post_mime_type IN ($mimes)";
 	}
 
 	/**
@@ -233,7 +245,7 @@ final class Worker {
 				break;
 			}
 
-			$source ??= self::source($id, $attached);
+			$source ??= self::source($meta, $attached);
 			if (!$source) {
 				$entries[$t['file']] = ['skip' => 'too-large', 'key' => $key, 'at' => time()];
 				continue;
@@ -241,7 +253,7 @@ final class Worker {
 
 			if ($editor === null) {
 				$editor = Engine::open($source, Engine::mime($format));
-				// The original upload keeps its EXIF orientation; WordPress rotates before resizing, and so do we.
+				// A file WordPress never rotated (uploaded before 5.3) still carries its EXIF orientation.
 				if (!is_wp_error($editor)) $editor->maybe_exif_rotate();
 			}
 			if (is_wp_error($editor)) {
@@ -249,8 +261,9 @@ final class Worker {
 				continue;
 			}
 
-			if ($t['crop'] && !is_file("$dir/{$t['file']}")) {
-				$made = $editor->tavif_save($t['w'], $t['h'], true, "$dir/{$t['file']}", $mime);
+			// Crops and widths asked for by a template have no WordPress sub-size: the fallback file is ours to make too.
+			if ($t['make'] && !is_file("$dir/{$t['file']}")) {
+				$made = $editor->tavif_save($t['w'], $t['h'], $t['crop'], "$dir/{$t['file']}", $mime);
 				if (is_wp_error($made)) {
 					$entries[$t['file']] = self::failure($entry, $key, $made->get_error_message());
 					continue;
@@ -273,7 +286,9 @@ final class Worker {
 
 		$index[$format] = $entries;
 		$index['v'] = 1;
-		if ($crops = self::crops_built($targets, $dir)) $index['crops'] = $crops;
+		[$crops, $extra] = self::made_built($targets, $dir);
+		if ($crops) $index['crops'] = $crops; else unset($index['crops']);
+		if ($extra) $index['extra'] = $extra; else unset($index['extra']);
 
 		if (!$finished) {
 			Index::put($id, $index);
@@ -303,30 +318,48 @@ final class Worker {
 	}
 
 	/**
-	 * Files to keep a modern copy of: the same candidates the renderer picks from, and
-	 * the crops templates asked for.
+	 * Files to keep a modern copy of: the same candidates the renderer picks from, plus the
+	 * crops and widths templates asked for (Index::wants()).
 	 *
-	 * @return array<int, array{file: string, w: int, h: int, crop: bool, ratio?: string}>
+	 * @return array<int, array{file: string, w: int, h: int, crop: bool, make: bool, ratio: string}>
 	 */
 	private static function targets(int $id, array $meta, string $mime): array {
 		$fw = (int) $meta['width'];
 		$fh = (int) $meta['height'];
 		$targets = [];
+		$widths = [];
 
 		foreach (Sizes::candidates($meta, Config::widths()) as $c) {
 			$full = $c['w'] === $fw;
 			// Width-only, like the registered size that made the fallback: same dimensions, same rounding.
-			$targets[] = ['file' => $c['file'], 'w' => $c['w'], 'h' => $full ? $fh : 0, 'crop' => false];
+			$targets[] = ['file' => $c['file'], 'w' => $c['w'], 'h' => $full ? $fh : 0, 'crop' => false, 'make' => false, 'ratio' => ''];
+			$widths[$c['w']] = true;
 		}
 
-		$stem = pathinfo((string) ($meta['original_image'] ?? basename((string) $meta['file'])), PATHINFO_FILENAME);
+		// Named after the current file, which after an edit in the media modal is the edited one.
+		$stem = pathinfo(basename((string) $meta['file']), PATHINFO_FILENAME);
 		$ext  = pathinfo((string) $meta['file'], PATHINFO_EXTENSION) ?: wp_get_default_extension_for_mime_type($mime);
 
-		foreach (Index::ratios($id) as $key) {
+		$ratios = [];
+		foreach (Index::wants($id) as $want) {
+			if ($want['ratio'] === '') {
+				// An uncropped width below every configured one, for an image displayed small.
+				$w = (int) $want['width'];
+				if (!$w || isset($widths[$w]) || $w >= $fw || $w > Config::MAX_GENERATED_WIDTH) continue;
+				$h = max(1, (int) round($w * $fh / $fw));
+				$targets[] = ['file' => "{$stem}-{$w}x{$h}-tavif.{$ext}", 'w' => $w, 'h' => $h, 'crop' => false, 'make' => true, 'ratio' => ''];
+				$widths[$w] = true;
+				continue;
+			}
+			$ratios[$want['ratio']] ??= [];
+			if ($want['width']) $ratios[$want['ratio']][] = (int) $want['width'];
+		}
+
+		foreach ($ratios as $key => $extra) {
 			$ratio = Renderer::parse_ratio($key);
 			if (!$ratio) continue;
-			foreach (Sizes::crop_targets($fw, $fh, $ratio['value'], Config::widths()) as $t) {
-				$targets[] = ['file' => "{$stem}-{$t['w']}x{$t['h']}-tavif.{$ext}", 'w' => $t['w'], 'h' => $t['h'], 'crop' => true, 'ratio' => $ratio['key']];
+			foreach (Sizes::crop_targets($fw, $fh, $ratio['value'], array_merge(Config::widths(), $extra)) as $t) {
+				$targets[] = ['file' => "{$stem}-{$t['w']}x{$t['h']}-tavif.{$ext}", 'w' => $t['w'], 'h' => $t['h'], 'crop' => true, 'make' => true, 'ratio' => $ratio['key'], 'asked' => in_array($t['w'], $extra, true)];
 			}
 		}
 
@@ -334,15 +367,20 @@ final class Worker {
 	}
 
 	/**
-	 * Crops whose source file now exists, grouped by ratio, for the renderer.
+	 * The files this package made whose fallback now exists, for the renderer: crops
+	 * grouped by ratio, and uncropped extra widths.
 	 */
-	private static function crops_built(array $targets, string $dir): array {
+	private static function made_built(array $targets, string $dir): array {
 		$crops = [];
+		$extra = [];
 		foreach ($targets as $t) {
-			if (!$t['crop'] || !is_file("$dir/{$t['file']}")) continue;
-			$crops[$t['ratio']][] = ['w' => $t['w'], 'h' => $t['h'], 'file' => $t['file']];
+			if (!$t['make'] || !is_file("$dir/{$t['file']}")) continue;
+			$row = ['w' => $t['w'], 'h' => $t['h'], 'file' => $t['file']];
+			if (!empty($t['asked'])) $row['asked'] = true;
+			if ($t['crop']) $crops[$t['ratio']][] = $row;
+			else $extra[] = $row;
 		}
-		return $crops;
+		return [$crops, $extra];
 	}
 
 	private static function up_to_date(?array $entry, string $key, string $dir): bool {
@@ -353,14 +391,28 @@ final class Worker {
 	}
 
 	/**
-	 * The file to encode from: the original upload when it is within the limits, since
-	 * every sub-size is made from it; otherwise the scaled file WordPress serves as full.
+	 * The file to encode from: the attached file, which is what WordPress serves as full size.
+	 *
+	 * Never the original upload behind it. After an edit in the media modal the attached
+	 * file is the edited one and `original_image` still names the untouched upload, so a
+	 * rotated photo came out of AVIF unrotated. And where the attached file is the -scaled
+	 * copy, starting from it costs 31% less time and 20% less memory for the same bytes:
+	 * nothing is ever generated wider than it.
+	 *
+	 * Past the conversion limits — a large PNG, which WordPress does not scale — the widest
+	 * proportional sub-size stands in, since no candidate is wider than 2560 anyway.
 	 */
-	private static function source(int $id, string $attached): ?string {
+	private static function source(array $meta, string $attached): ?string {
 		$max_bytes = (int) Config::get('max_file_size') * MB_IN_BYTES;
 		$max_dim   = (int) Config::get('max_dimension');
 
-		foreach (array_unique(array_filter([wp_get_original_image_path($id), $attached])) as $path) {
+		$paths = [$attached];
+		$by_width = [];
+		foreach (Sizes::candidates($meta, Config::widths()) as $c) $by_width[$c['w']] = dirname($attached) . '/' . $c['file'];
+		krsort($by_width);
+		foreach ($by_width as $path) $paths[] = $path;
+
+		foreach (array_unique($paths) as $path) {
 			if (!is_file($path) || filesize($path) > $max_bytes) continue;
 			$size = wp_getimagesize($path);
 			if (!$size || $size[0] > $max_dim || $size[1] > $max_dim) continue;
