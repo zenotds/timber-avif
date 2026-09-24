@@ -119,6 +119,23 @@ check('85 KB → 97 KB discarded', Engine::exceeds_tolerance(85 * $kb, 97 * $kb)
 check('5 MB → +100 KB discarded', Engine::exceeds_tolerance(5000 * $kb, 5100 * $kb), true);
 check('smaller is always kept', Engine::exceeds_tolerance(100 * $kb, 40 * $kb), false);
 
+/* ── Engine::gd_avif_quality ── */
+
+check('GD at the default: the quality with Imagick\'s bytes', Engine::gd_avif_quality(75), 65);
+check('between two measured points, in proportion', Engine::gd_avif_quality(72), 62);
+check('from 90 libgd would switch to 4:4:4: the scale stops at 89', Engine::gd_avif_quality(97), 89);
+check('lossless is passed as it is', Engine::gd_avif_quality(100), 100);
+check('out of range is clamped', [Engine::gd_avif_quality(0), Engine::gd_avif_quality(120)], [1, 100]);
+check('never inverted, never at 4:4:4 below 100', (function () {
+	$prev = 0;
+	for ($q = 1; $q < 100; $q++) {
+		$gd = Engine::gd_avif_quality($q);
+		if ($gd < $prev || $gd >= 90) return $q;
+		$prev = $gd;
+	}
+	return true;
+})(), true);
+
 /* ── Sizes: extra widths and proportions ── */
 
 $c = Sizes::candidates(meta([480, 640, 1024]), [480, 640, 1024], 200, [['w' => 200, 'h' => 133, 'file' => 'photo-scaled-200x133-tavif.jpg']]);

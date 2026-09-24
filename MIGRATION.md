@@ -1,5 +1,11 @@
 # Migration Guide
 
+## From v7.0.2 to v7.0.3
+
+**Not breaking.** `composer update zenotds/timber-avif`, nothing else to do.
+
+AVIF written with GD now weighs what Imagick's does at the same setting, and is encoded 2.6 times faster: see [README](README.md#quality). Before, the same setting came out about a fifth heavier through GD. A site that converted with GD under 7.0.0–7.0.2 re-encodes its AVIF copies once, in the background, after the update; the current files are served until each one is replaced. Sites on Imagick, or serving WebP, are not affected.
+
 ## From v7.0.1 to v7.0.2
 
 **Not breaking.** `composer update zenotds/timber-avif`, nothing else to do.

@@ -1,4 +1,4 @@
-# Timber AVIF (v7.0.2)
+# Timber AVIF (v7.0.3)
 
 Responsive images for Timber 2.x. Generates AVIF (or WebP) copies of every image in the media library **in the background**, and builds a `<picture>` whose markup depends only on what has been recorded — never on what a page render managed to convert.
 
@@ -227,6 +227,8 @@ Defaults: AVIF 75 · WebP 90 · JPEG 82. The JPEG is only the fallback now — v
 
 A converted file is kept unless it is meaningfully heavier than the one it replaces: more than 10% **and** more than 4 KB over, or more than 50 KB over regardless. The floor decides below ~40 KB, the ratio between ~40 and ~500 KB, the ceiling above that.
 
+**With GD, the setting means the same bytes.** libgd turns the quality into one fixed quantizer, where libheif — behind Imagick — lets the encoder spend bits where they show: at 75 GD's AVIF came out 23% heavier. So GD is handed the quality that matches Imagick's bytes (75 → 65, 85 → 77, 90 → 84; the table is `Engine::GD_AVIF_QUALITY`), and libavif speed 8 instead of the 6 WordPress leaves it at: 2.6 times faster for 3.6% more bytes. Measured with libgd 2.3.3 against ImageMagick 7.1.2, on 18 photos and renders from three sites: Imagick 1,216 KB, GD 1,203 KB, with the same distortion from a lossless resize. Above 89 GD stops, since libgd switches to 4:4:4 chroma there, 23% heavier at once, and Imagick never does. What GD still lacks is the colour profile, and the light sharpening WordPress applies after an Imagick resize.
+
 The modern copies keep the colour profile and nothing else: EXIF, XMP and IPTC were about 2 KB per file, 8% of the smallest ones, for data no browser reads. Provenance is read from the original upload, which keeps them.
 
 ## Translations
@@ -253,6 +255,8 @@ Everything that exists only to move a site from v6 lives in `src/Migration/V6.ph
 ```bash
 php tests/unit.php                     # no WordPress needed
 wp eval-file tests/integration.php     # a throwaway site with Timber and this package
+wp eval-file tests/gd.php              # GD's AVIF path; imageavif() stood in for where GD has none
+wp eval-file tests/prepare.php --require=tests/fake-v6.php   # next to v6
 ```
 
 The integration test uploads its own images, runs the worker, renders through Twig and deletes what it made. It changes settings: do not point it at a real site.

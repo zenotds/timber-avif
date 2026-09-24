@@ -23,4 +23,18 @@ class Gd extends \WP_Image_Editor_GD {
 
 		return $saved;
 	}
+
+	/**
+	 * WordPress writes AVIF as imageavif($image, $file, $quality): the quality as it is and
+	 * libavif's default speed. Here the quality Imagick's bytes correspond to, and a faster
+	 * speed (Engine::gd_avif_quality(), Engine::GD_AVIF_SPEED). Only this editor, which only
+	 * the worker opens: WordPress's own sub-sizes are left to WordPress.
+	 */
+	protected function make_image($filename, $callback, $arguments) {
+		if ($callback === 'imageavif' && isset($arguments[2])) {
+			$arguments[2] = \TimberAVIF\Engine::gd_avif_quality((int) $arguments[2]);
+			$arguments[3] = \TimberAVIF\Engine::GD_AVIF_SPEED;
+		}
+		return parent::make_image($filename, $callback, $arguments);
+	}
 }

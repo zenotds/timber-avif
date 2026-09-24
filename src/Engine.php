@@ -127,6 +127,40 @@ final class Engine {
 			&& $excess > $baseline * Config::OVERSIZE_MIN_RATIO;
 	}
 
+	/**
+	 * libavif's speed for GD. WordPress calls imageavif() with the quality alone, which leaves
+	 * libavif at 6; at 8 it encoded 2.6 times faster for 3.6% more bytes, measured on the
+	 * photos below. 9 cost 18%.
+	 */
+	const GD_AVIF_SPEED = 8;
+
+	/**
+	 * Settings quality → the quality GD needs for the bytes Imagick writes at it.
+	 *
+	 * The same number means different things: libgd turns it into one fixed quantizer, libheif
+	 * into a target the encoder spends bits against where they show. At 75 GD came out 23%
+	 * heavier. Measured with libgd 2.3.3 (libavif 1.4.2, at GD_AVIF_SPEED) against the
+	 * Imagick path (ImageMagick 7.1.2, libheif 1.23): 18 photos and renders from three sites,
+	 * at 640 and 1280 px. Each point matches Imagick's bytes within 3% on average, within 15%
+	 * for any one image. From 90 libgd switches to 4:4:4 chroma, 23% heavier at once, which
+	 * Imagick never does: the scale stops at 89. 100, lossless, is passed as it is.
+	 */
+	const GD_AVIF_QUALITY = [1 => 1, 40 => 30, 50 => 39, 60 => 49, 70 => 60, 75 => 65, 80 => 73, 85 => 77, 90 => 84, 95 => 89, 99 => 89, 100 => 100];
+
+	public static function gd_avif_quality(int $quality): int {
+		$quality = max(1, min(100, $quality));
+		$prev = null;
+		foreach (self::GD_AVIF_QUALITY as $at => $gd) {
+			if ($quality === $at) return $gd;
+			if ($quality < $at && $prev) {
+				[$prev_at, $prev_gd] = $prev;
+				return (int) round($prev_gd + ($gd - $prev_gd) * ($quality - $prev_at) / ($at - $prev_at));
+			}
+			$prev = [$at, $gd];
+		}
+		return $quality;
+	}
+
 	public static function is_valid(string $path, string $format): bool {
 		if (!is_file($path) || filesize($path) < 50) return false;
 		$head = (string) file_get_contents($path, false, null, 0, 32);

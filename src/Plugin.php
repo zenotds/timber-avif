@@ -6,7 +6,7 @@ namespace TimberAVIF;
  * Wiring.
  */
 final class Plugin {
-	const VERSION = '7.0.2';
+	const VERSION = '7.0.3';
 	const VERSION_OPTION = 'timber_avif_version';
 	// Set when v7 takes over from v6 and cleared once v6's files are removed: until then
 	// Tools and the CLI offer to remove them. Here, not in Migration\V6, so that reading
@@ -87,9 +87,15 @@ final class Plugin {
 	public static function init(): void {
 		// Once per version, when v7 is the one rendering. An attachment without a v7 stamp is
 		// pending by definition, so nothing is queued explicitly.
-		if (!self::$preparing && get_option(self::VERSION_OPTION) !== self::VERSION) {
+		$from = get_option(self::VERSION_OPTION);
+		if (!self::$preparing && $from !== self::VERSION) {
 			Migration\V6::take_over();
 			Server::ensure();
+			// 7.0.3 changed what GD writes at the same settings (Editor\Gd::make_image()): a site
+			// that converted with it before makes its AVIF copies again, a fifth lighter.
+			if (is_string($from) && version_compare($from, '7.0.3', '<') && Config::format() === 'avif' && Engine::detect('avif') === 'gd') {
+				Config::bump_generation();
+			}
 			update_option(self::VERSION_OPTION, self::VERSION, true);
 			Worker::hint();
 			Worker::wake();
