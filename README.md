@@ -18,7 +18,7 @@ v6 converted files while pages rendered, and asked the disk what existed. Most o
 - **Settings store only what differs from the defaults**, so a value left alone follows future defaults. Still edited under Settings → Timber AVIF.
 - **A Composer package** (or a drop-in folder), with the macro shipped as `@timber-avif/macros.twig`, so themes stop carrying copies that drift.
 
-Measured on a clone of a real catalogue (Mobilissimo, 1,454 images): 2,306 AVIF files checked, none missing, invalid or of the wrong dimensions, 59% lighter than the JPEGs they replace, with a median visual difference (RMSE) of 0.003. Once converted, pages weigh what they did with v6 and render 5–15% faster. What changes most is the worst case: v6's first view of a page with unconverted images took 12–14 seconds; v7 never does image work while rendering.
+Measured on a clone of a real catalogue (Mobilissimo, 1,454 images), migrated with the prepare-then-switch path: 8,071 AVIF files checked, none missing, invalid or of the wrong dimensions, half the weight of the JPEGs they replace, with a median visual difference (RMSE) of 0.003. Seven representative pages came out 3% lighter on desktop and 6% on mobile than with v6, and rendered 5–17% faster. What changes most is the worst case: v6's first view of a page with unconverted images took 12–14 seconds; v7 never does image work while rendering. With v6's files removed, the uploads folder went from 2.7 GB to 1.8 GB, v7's own files included.
 
 ## Requirements
 

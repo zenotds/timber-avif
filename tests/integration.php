@@ -200,7 +200,13 @@ try {
 
 	$data = Renderer::sources($legacy_id, []);
 	check('served from the core sizes meanwhile, medium included', str_contains($data['srcset'], ' 300w') && str_contains($data['srcset'], ' 1024w') && $data['modern'] === null, $data['srcset']);
+	// A resize a template made with Timber's |resize, before the worker adds the canonical sizes.
+	$timber_url = \Timber\ImageHelper::resize(wp_get_attachment_url($legacy_id), 333, 0);
+	$timber_file = dir_of($legacy_id) . '/' . wp_basename($timber_url);
 	drain();
+	check('adding the canonical sizes leaves Timber\'s resizes alone', is_file($timber_file), $timber_file);
+	check('and Timber\'s own hook is back afterwards', has_filter('wp_generate_attachment_metadata', ['Timber\\ImageHelper', 'generate_attachment_metadata']) !== false);
+	@unlink($timber_file);
 	$data = Renderer::sources($legacy_id, []);
 	check('the worker builds the canonical sizes it lacked', str_contains($data['srcset'], '-1280x') && !str_contains($data['srcset'], ' 300w'), $data['srcset']);
 	check('and then serves AVIF', $data['modern'] !== null);
@@ -251,6 +257,8 @@ try {
 	$data = Renderer::sources($small_id, ['max' => 200]);
 	check('once built it is the candidate, in AVIF too', str_contains($data['srcset'], ' 200w') && !str_contains($data['srcset'], ' 480w') && $data['modern'] && str_contains($data['modern']['srcset'], '-tavif.jpg.avif 200w'), $data['srcset'] . ' | ' . ($data['modern']['srcset'] ?? '-'));
 	$sq = Renderer::sources($small_id, ['max' => 160, 'ratio' => '1/1']);
+	$asked = array_map(fn($w) => $w['ratio'] . '@' . $w['width'], Index::wants($small_id));
+	check('a small crop asks for the crop at that width, not for an uncropped one', in_array('1x1@160', $asked, true) && !in_array('@160', $asked, true), implode(', ', $asked));
 	drain();
 	$sq = Renderer::sources($small_id, ['max' => 160, 'ratio' => '1/1']);
 	check('the same for a crop', str_contains($sq['srcset'], ' 160w') && $sq['modern'] !== null, $sq['srcset']);

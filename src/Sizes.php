@@ -45,11 +45,19 @@ final class Sizes {
 			return array_filter((array) $missing, fn($data, $name) => str_starts_with($name, self::PREFIX) && (int) $data['width'] < $full, ARRAY_FILTER_USE_BOTH);
 		};
 
-		// wp_update_image_subsizes() runs `wp_generate_attachment_metadata` again, and while v7
-		// prepares next to v6 that is v6's upload hook: it re-encoded every image v7 prepared
-		// in its own way, doubling the time for files nobody would serve.
-		$v6 = Plugin::preparing() ? has_filter('wp_generate_attachment_metadata', ['TimberAVIF', 'on_upload']) : false;
-		if ($v6 !== false) remove_filter('wp_generate_attachment_metadata', ['TimberAVIF', 'on_upload'], $v6);
+		// wp_update_image_subsizes() runs `wp_generate_attachment_metadata` again, as if the
+		// image had changed. Two listeners act on that, wrongly here, since sizes are only added:
+		// Timber deletes every resize it made for the image — on Mobilissimo all 6,685 of them,
+		// which v6 then rebuilt inline while it still served the site — and v6's upload hook
+		// re-encoded every image in its own way, doubling the time for files nobody would serve.
+		$suspended = [];
+		foreach ([['Timber\\ImageHelper', 'generate_attachment_metadata'], ['TimberAVIF', 'on_upload']] as $callback) {
+			if ($callback[0] === 'TimberAVIF' && !Plugin::preparing()) continue;
+			$priority = has_filter('wp_generate_attachment_metadata', $callback);
+			if ($priority === false) continue;
+			remove_filter('wp_generate_attachment_metadata', $callback, $priority);
+			$suspended[] = [$callback, $priority];
+		}
 
 		add_filter('wp_get_missing_image_subsizes', $ours, 99);
 		try {
@@ -57,7 +65,7 @@ final class Sizes {
 			$updated = wp_update_image_subsizes($id);
 		} finally {
 			remove_filter('wp_get_missing_image_subsizes', $ours, 99);
-			if ($v6 !== false) add_filter('wp_generate_attachment_metadata', ['TimberAVIF', 'on_upload'], $v6, 2);
+			foreach ($suspended as [$callback, $priority]) add_filter('wp_generate_attachment_metadata', $callback, $priority, 2);
 		}
 
 		return is_array($updated) ? $updated : $meta;

@@ -227,6 +227,9 @@ final class Renderer {
 			// First time a template asks for this crop: one meta row, then the worker builds it.
 			Index::want($id, $ratio['key']);
 			if ($max && $max < min(Config::widths() ?: [PHP_INT_MAX])) Index::want($id, $ratio['key'], $max);
+			// Meanwhile the uncropped files stand in, as they are: asking for a small uncropped
+			// width here would build a file nobody serves once the crop exists.
+			return Sizes::candidates((array) $meta, $widths, $max, (array) ($index['extra'] ?? []));
 		}
 		return self::with_small($id, '', Sizes::candidates((array) $meta, $widths, $max, (array) ($index['extra'] ?? [])), $max);
 	}
