@@ -16,10 +16,18 @@ final class Renderer {
 	 * Everything the image() macro needs for a responsive <picture>.
 	 *
 	 * @param mixed $image Timber\Image, attachment ID, WP_Post, ACF image array, or a URL.
-	 * @param array $opts  widths (int[]), max (int), ratio ('16/9'|float), disclosure (string|false)
+	 * @param array $opts  widths (int[]), max (int), ratio ('16/9'|float), disclosure (string|false),
+	 *                     atf (bool: the macro gives this image fetchpriority="high")
 	 */
 	public static function sources($image, array $opts = []): array {
 		$empty = ['ok' => false, 'src' => '', 'srcset' => '', 'width' => null, 'height' => null, 'modern' => null, 'disclosure' => ''];
+
+		// WordPress gives fetchpriority="high" to one image per page, the first large one that
+		// goes through its own functions, and keeps count with this flag. The macro's hero goes
+		// through Twig, so WordPress never saw it and marked the first large image of the
+		// content too: two hints competing for bandwidth. Now it knows the place is taken.
+		// Pages without an atf image keep WordPress's own choice.
+		if (!empty($opts['atf']) && function_exists('wp_high_priority_element_flag')) wp_high_priority_element_flag(false);
 
 		$id = self::attachment_id($image);
 		if (!$id) {

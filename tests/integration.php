@@ -178,6 +178,16 @@ try {
 	check('the modern srcset lists every width', substr_count(Renderer::sources($img, [])['modern']['srcset'], '.avif ') === 9);
 	$atf = render('{{ m.image(img, { sizes: "100vw", atf: true }) }}', ['img' => $img]);
 	check('above the fold: no auto, fetchpriority', str_contains($atf, 'sizes="100vw"') && str_contains($atf, 'fetchpriority="high"') && !str_contains($atf, 'loading='));
+
+	// WordPress's own pick for fetchpriority="high": the first large image it handles, while its flag is free.
+	$large = ['width' => 1200, 'height' => 800];
+	wp_high_priority_element_flag(true);
+	render('{{ m.image(img, { sizes: "100vw" }) }}', ['img' => $img]);
+	check('a lazy image leaves WordPress\'s pick alone', (wp_maybe_add_fetchpriority_high_attr([], 'img', $large)['fetchpriority'] ?? '') === 'high');
+	wp_high_priority_element_flag(true);
+	render('{{ m.image(img, { sizes: "100vw", atf: true }) }}', ['img' => $img]);
+	check('an atf image takes the place: WordPress adds no second fetchpriority', !isset(wp_maybe_add_fetchpriority_high_attr([], 'img', $large)['fetchpriority']));
+	wp_high_priority_element_flag(true);
 	check('Timber\'s image class is left alone', get_class($img) === 'Timber\\Image', get_class($img));
 	check('|best_src(1280, 720) takes the 16x9 path', str_contains(render('{{ img|best_src(1280, 720) }}', ['img' => $img]), 'photo'));
 	check('a plain URL passes through', Renderer::sources('https://example.com/a.jpg', [])['src'] === 'https://example.com/a.jpg');

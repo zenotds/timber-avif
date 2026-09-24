@@ -1,5 +1,14 @@
 # Migration Guide
 
+## From v7.0.0 to v7.0.1
+
+**Not breaking.** `composer update zenotds/timber-avif`, nothing else to do.
+
+An `atf` image from the macro now tells WordPress that the page's high-priority image is taken. WordPress hands out `fetchpriority="high"` once per page, to the first large image that goes through its own functions; the macro's hero goes through Twig, so WordPress never saw it and gave a second one to the first large image of the post content. Pages without an `atf` image keep WordPress's choice.
+
+- A theme filter that strips `fetchpriority="high"` from content images (`wp_content_img_tag` with a `preg_replace`) can go: it did the same thing, except it also removed the hint on pages where the first content image really is the main one.
+- A theme that forked the macro instead of delegating to `@timber-avif/macros.twig` has to pass it along itself: `atf: config.atf` in its `image_sources()` call.
+
 ## From v6.1.x to v7.0
 
 **Breaking in how it is installed, not in the templates.** Call sites stay as they are, `image_sources()` returns the same keys, and the settings carry over. What changes is where the code lives and when files are made.

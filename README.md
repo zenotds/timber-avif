@@ -1,4 +1,4 @@
-# Timber AVIF (v7.0.0)
+# Timber AVIF (v7.0.1)
 
 Responsive images for Timber 2.x. Generates AVIF (or WebP) copies of every image in the media library **in the background**, and builds a `<picture>` whose markup depends only on what has been recorded — never on what a page render managed to convert.
 
@@ -100,7 +100,7 @@ A theme whose `partial/macros.twig` holds other macros too can keep every call s
 | `widths` | Settings → Widths | Pick a subset of the configured widths for this image. Widths not configured have no files and are ignored. |
 | `max` | — | Cap the candidates, for images displayed small. One candidate past it is kept, for DPR 2. Below every configured width, the worker builds that width for this image. |
 | `ratio` | — | Crop server-side (`'16/9'` or a float). The first render asks for it; until the worker builds it, the uncropped files are served in a box of that ratio and `object-cover` crops them. |
-| `atf` | `false` | `fetchpriority="high"` instead of lazy loading. |
+| `atf` | `false` | `fetchpriority="high"` instead of lazy loading, and WordPress is told the place is taken, so it does not give a second `fetchpriority` to the first large image of the content. |
 | `alt` | image alt/title | Pass `''` for decorative images. |
 | `pictureClass` / `imgClass` | — | Classes on the two elements. |
 | `disclosure` | — | Corner for the AI Act label on flagged images: `top-left`, `top-right`, `bottom-left`, `bottom-right` (default), or `none`/`false` to leave it off this placement. Inert unless a plugin implements the disclosure filter. |

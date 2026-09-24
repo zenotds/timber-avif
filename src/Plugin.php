@@ -6,7 +6,7 @@ namespace TimberAVIF;
  * Wiring.
  */
 final class Plugin {
-	const VERSION = '7.0.0';
+	const VERSION = '7.0.1';
 	const VERSION_OPTION = 'timber_avif_version';
 	// Set when v7 takes over from v6 and cleared once v6's files are removed: until then
 	// Tools and the CLI offer to remove them. Here, not in Migration\V6, so that reading

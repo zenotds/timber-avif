@@ -16,7 +16,7 @@
 		disclosure: null
 	}|merge(options) %}
 
-	{% set data = image_sources(image, { widths: config.widths, max: config.max, ratio: config.ratio, disclosure: config.disclosure }) %}
+	{% set data = image_sources(image, { widths: config.widths, max: config.max, ratio: config.ratio, disclosure: config.disclosure, atf: config.atf }) %}
 
 	{% if data.ok %}
 		{% set altText = config.alt ?? (image.alt is defined and image.alt ? image.alt : (image.title is defined ? image.title : '')) %}
