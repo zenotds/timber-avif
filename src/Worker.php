@@ -31,6 +31,9 @@ final class Worker {
 	const MAX_TRIES   = 3;
 	const RETRY_AFTER = DAY_IN_SECONDS;
 
+	// Attachments whose markup this worker changed, announced once per run (Cache purges on it).
+	private static array $changed = [];
+
 	/* ─────────────────────────────────────────────
 	 * Scheduling
 	 * ───────────────────────────────────────────── */
@@ -177,7 +180,32 @@ final class Worker {
 		if ($result['remaining']) self::wake();
 		else update_option(self::HINT, 0, true);
 
+		self::announce();
+		if (!$result['remaining']) do_action('timber_avif/idle');
+
 		return $result;
+	}
+
+	/**
+	 * `timber_avif/changed`, with the attachments whose markup the passes since the last call
+	 * changed: a modern set that became complete, a crop or a width built, copies of a
+	 * replaced file dropped. A page cache that holds a page showing one of them is stale.
+	 */
+	/**
+	 * Note an attachment whose markup changed outside a worker pass — copies of a replaced
+	 * file dropped. Announced once, at the end of the request: an import that replaces five
+	 * hundred files makes one call, not five hundred.
+	 */
+	public static function changed(int $id): void {
+		self::$changed[] = $id;
+		if (!has_action('shutdown', [self::class, 'announce'])) add_action('shutdown', [self::class, 'announce'], 5);
+	}
+
+	public static function announce(): void {
+		if (!self::$changed) return;
+		$ids = array_values(array_unique(self::$changed));
+		self::$changed = [];
+		do_action('timber_avif/changed', $ids);
 	}
 
 	/* ─────────────────────────────────────────────
@@ -189,7 +217,38 @@ final class Worker {
 	 * was done is saved, and the next pass carries on from there.
 	 */
 	public static function process(int $id, float $deadline): bool {
+		$format = (string) Config::format();
+		$before = self::served($id, $format);
+		$done = self::work_on($id, $deadline);
+		if (self::served($id, $format) !== $before) self::$changed[] = $id;
+		return $done;
+	}
+
+	/**
+	 * What the markup of this attachment depends on, as a fingerprint: the modern set of its
+	 * full candidates, the crops and widths built on request and whether they are served in
+	 * the modern format. File names only, not bytes — a copy re-encoded in place, at a new
+	 * quality, keeps its URL and changes no page.
+	 */
+	private static function served(int $id, string $format): string {
+		$meta = (array) wp_get_attachment_metadata($id);
 		$index = Index::get($id);
+		$entries = (array) ($index[$format] ?? []);
+		$extra = (array) ($index['extra'] ?? []);
+
+		$sets = [Renderer::modern_srcset(Sizes::candidates($meta, Config::widths(), null, $extra), $entries, ''), array_column($extra, 'w')];
+		foreach ((array) ($index['crops'] ?? []) as $ratio => $crops) {
+			$sets[$ratio] = [array_column($crops, 'w'), Renderer::modern_srcset(Sizes::crop_candidates($crops, Config::widths()), $entries, '')];
+		}
+		return md5(serialize($sets + ['anim' => !empty($index['anim'])]));
+	}
+
+	private static function work_on(int $id, float $deadline): bool {
+		$index = Index::get($id);
+		// The file was replaced since its copies were made — in place, or by an edit in the
+		// media modal: they show the old picture.
+		if (Index::source_changed($id, $index)) $index = Index::forget_source($index);
+		$owned_before = Index::owned_names($index);
 
 		// Counted per fingerprint: new settings (lower limits, another format) deserve a fresh try.
 		$fingerprint = Config::fingerprint();
@@ -261,9 +320,10 @@ final class Worker {
 				continue;
 			}
 
-			// Crops and widths asked for by a template have no WordPress sub-size: the fallback file is ours to make too.
-			if ($t['make'] && !is_file("$dir/{$t['file']}")) {
-				$made = $editor->tavif_save($t['w'], $t['h'], $t['crop'], "$dir/{$t['file']}", $mime);
+			// Crops and widths asked for by a template have no WordPress sub-size: the fallback
+			// file is ours to make too — again when the source was replaced.
+			if ($t['make'] && (!is_file("$dir/{$t['file']}") || !empty($index['remake']))) {
+				$made = self::make($editor, $t, $dir, $mime);
 				if (is_wp_error($made)) {
 					$entries[$t['file']] = self::failure($entry, $key, $made->get_error_message());
 					continue;
@@ -276,12 +336,9 @@ final class Worker {
 
 		if ($finished) {
 			// Entries for files no longer served — a width removed, a sub-size regenerated
-			// under another name — are deleted with their files.
+			// under another name — go.
 			$live = array_flip(array_column($targets, 'file'));
-			foreach (array_diff_key($entries, $live) as $file => $entry) {
-				if (!empty($entry['file'])) @unlink("$dir/{$entry['file']}");
-				unset($entries[$file]);
-			}
+			$entries = array_intersect_key($entries, $live);
 		}
 
 		$index[$format] = $entries;
@@ -289,6 +346,14 @@ final class Worker {
 		[$crops, $extra] = self::made_built($targets, $dir);
 		if ($crops) $index['crops'] = $crops; else unset($index['crops']);
 		if ($extra) $index['extra'] = $extra; else unset($index['extra']);
+
+		if ($finished) {
+			// Every file this index owned before the pass and no longer does is deleted — a
+			// replaced source's copies not written over, a crop of an edited image, a removed
+			// width. Nothing else knows they exist.
+			unset($index['old']);
+			foreach (array_diff($owned_before, Index::owned_names($index)) as $name) @unlink("$dir/$name");
+		}
 
 		if (!$finished) {
 			Index::put($id, $index);
@@ -300,10 +365,14 @@ final class Worker {
 	}
 
 	/**
-	 * Stamp an attachment as done for the current settings.
+	 * Stamp an attachment as done for the current settings, recording the file its copies
+	 * were made from (Index::source_changed()).
 	 */
 	private static function finish(int $id, array $index, string $issue = '', bool $retry = false): bool {
 		$index['v'] = 1;
+		unset($index['remake']);
+		$attached = get_attached_file($id);
+		if ($attached && is_file($attached)) $index['source'] = Index::source_record($attached);
 		Index::put($id, $index);
 		update_post_meta($id, Index::STAMP, Config::fingerprint());
 		delete_post_meta($id, Index::ATTEMPTS);
@@ -419,6 +488,27 @@ final class Worker {
 			return $path;
 		}
 		return null;
+	}
+
+	/**
+	 * A fallback file of ours — a crop, an extra width — written aside and renamed into
+	 * place, since it may be live on a page already.
+	 *
+	 * @return array|\WP_Error
+	 */
+	private static function make($editor, array $t, string $dir, string $mime) {
+		$ext = pathinfo($t['file'], PATHINFO_EXTENSION);
+		$tmp = "$dir/{$t['file']}.tavif-" . wp_generate_password(6, false) . ".$ext";
+		$made = $editor->tavif_save($t['w'], $t['h'], $t['crop'], $tmp, $mime);
+		if (is_wp_error($made)) {
+			@unlink($tmp);
+			return $made;
+		}
+		if (!@rename($made['path'] ?? $tmp, "$dir/{$t['file']}")) {
+			@unlink($made['path'] ?? $tmp);
+			return new \WP_Error('tavif_move', __('Could not move the converted file into place', 'timber-avif'));
+		}
+		return $made;
 	}
 
 	/**

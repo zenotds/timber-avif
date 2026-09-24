@@ -26,7 +26,7 @@ try {
 	echo "\nPrepare mode\n";
 	pcheck('v6 is seen and v7 prepares', Plugin::preparing() && TimberAVIF::VERSION === '6.1.3');
 	pcheck('v7 leaves the markup to v6', !has_filter('timber/twig', [Twig::class, 'register']) && !has_filter('wp_content_img_tag', [Content::class, 'img_tag']));
-	pcheck('and does not declare its v6 compatibility class', !method_exists('TimberAVIF', 'filter_toavif'));
+	pcheck('nor purges the page cache, which holds v6\'s pages', !has_action('timber_avif/changed', [\TimberAVIF\Cache::class, 'changed']));
 
 	// An image as v6 knew it: no canonical sizes yet.
 	$src = get_temp_dir() . 'tavif-prepare.jpg';

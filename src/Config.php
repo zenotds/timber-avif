@@ -27,17 +27,8 @@ final class Config {
 	const OVERSIZE_MIN_BYTES  = 4096;
 	const OVERSIZE_HARD_LIMIT = 51200;
 
-	// Settings v6 had and v7 no longer needs: nothing is converted while a page renders,
-	// so there is no per-page budget and no list of widths to build ahead of it.
-	const OBSOLETE = ['pregenerate_breakpoints', 'pregenerate_widths', 'max_inline_conversions'];
-
-	// Defaults of v6 that v7 changed. v6 wrote every default into the database on its first
-	// run, so a v6 option holding one of these is a frozen default, not a choice: it is read
-	// as the v7 default. 65 is the AVIF quality 6.0–6.1.1 shipped with by mistake.
-	const V6_DEFAULTS = ['avif_quality' => [65], 'jpeg_quality' => [95]];
-
-	// Marks an option written by v7, which holds choices only. An option without it was
-	// written by v6.
+	// Marks an option written by v7, which holds choices only. A stored option without it
+	// was written by v6, and is read through Migration\V6.
 	const SCHEMA = '_v';
 
 	private static ?array $settings = null;
@@ -104,8 +95,8 @@ final class Config {
 	}
 
 	/**
-	 * Once, when v7 takes over from v6: store the option the way v7 reads it, so that from
-	 * then on every stored value is a choice.
+	 * Store the option the way v7 reads it, so that from then on every stored value is a
+	 * choice. Once, when v7 takes over from v6.
 	 */
 	public static function migrate(): void {
 		$saved = get_option(self::OPTION, []);
@@ -116,21 +107,14 @@ final class Config {
 
 	/**
 	 * The choices in a stored option: known keys only, sanitized, without the values that are
-	 * defaults. For an option v6 wrote, its frozen defaults count as defaults too.
-	 *
-	 * Reading and migrating go through the same function, so the settings in effect are the
-	 * same before and after the migration — which is what lets v7 prepare the library while
-	 * v6 still runs without re-encoding it all when it takes over.
+	 * defaults. Reading and migrating go through the same function, so the settings in
+	 * effect are the same before and after v7 takes over from v6.
 	 */
 	private static function normalize(array $saved): array {
-		$from_v6 = empty($saved[self::SCHEMA]);
+		if ($saved && empty($saved[self::SCHEMA])) $saved = Migration\V6::settings($saved);
 		$saved = array_intersect_key($saved, self::defaults());
 		$clean = array_intersect_key(self::sanitize($saved + self::defaults()), $saved);
-
-		return array_filter($clean, function ($value, $key) use ($from_v6) {
-			if ($value === self::defaults()[$key]) return false;
-			return !($from_v6 && in_array($value, self::V6_DEFAULTS[$key] ?? [], true));
-		}, ARRAY_FILTER_USE_BOTH);
+		return self::diff($clean);
 	}
 
 	public static function sanitize(array $input): array {

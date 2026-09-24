@@ -14,33 +14,8 @@ final class Cli {
 		\WP_CLI::add_command('timber-avif purge', [self::class, 'purge']);
 		\WP_CLI::add_command('timber-avif detect', [self::class, 'detect']);
 		\WP_CLI::add_command('timber-avif clear-cache', [self::class, 'clear_cache']);
-		// v6 names, so scripts and habits keep working.
-		\WP_CLI::add_command('timber-avif bulk', fn() => self::work([], ['all' => true]));
-		\WP_CLI::add_command('timber-avif queue', [self::class, 'work']);
-	}
-
-	/**
-	 * While v6 is still loaded, its own commands keep their names; v7 adds one.
-	 */
-	public static function register_prepare(): void {
-		\WP_CLI::add_command('timber-avif prepare', [self::class, 'prepare']);
-	}
-
-	/**
-	 * Convert the library for v7 while v6 still serves the site.
-	 *
-	 * ## OPTIONS
-	 *
-	 * [--all]
-	 * : Keep going until every image is ready.
-	 *
-	 * [--budget=<seconds>]
-	 * : Seconds per pass. Default 60.
-	 */
-	public static function prepare(array $args = [], array $assoc = []): void {
-		\WP_CLI::log(sprintf('v7 is preparing alongside v6. %d of %d images ready.', Worker::count_sources() - Worker::count_pending(), Worker::count_sources()));
-		self::work($args, $assoc);
-		if (!Worker::count_pending()) \WP_CLI::success('Ready: remove the require of avif.php from functions.php and v7 takes over.');
+		// Only while v6's files may still be on disk: see Migration\V6.
+		if (get_option(Plugin::V6_LEFTOVERS)) Migration\V6::register_cli();
 	}
 
 	/**
@@ -109,22 +84,15 @@ final class Cli {
 	}
 
 	/**
-	 * Delete generated files.
-	 *
-	 * [--v6]
-	 * : Delete what v6 left behind instead: photo.avif beside photo.jpg, and .lock files.
-	 *
-	 * [--timber-resizes]
-	 * : With --v6, also delete the JPEGs Timber resized for v6 (photo-640x0-c-default.jpg).
+	 * Delete every generated file. They are rebuilt in the background.
 	 *
 	 * [--yes]
 	 * : Skip the confirmation.
 	 */
 	public static function purge(array $args = [], array $assoc = []): void {
-		$v6 = !empty($assoc['v6']);
-		\WP_CLI::confirm($v6 ? 'Delete every file left by v6?' : 'Delete every generated AVIF and WebP file?', $assoc);
-		$deleted = $v6 ? Tools::purge_v6(!empty($assoc['timber-resizes'])) : Tools::purge();
-		if (!$v6) Worker::hint();
+		\WP_CLI::confirm('Delete every generated AVIF and WebP file?', $assoc);
+		$deleted = Tools::purge();
+		Worker::hint();
 		\WP_CLI::success(sprintf('%d files deleted.', $deleted));
 	}
 

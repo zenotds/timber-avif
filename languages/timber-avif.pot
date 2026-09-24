@@ -7,7 +7,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-09-23T22:01:04+00:00\n"
+"POT-Creation-Date: 2026-09-24T08:45:57+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: timber-avif\n"
@@ -35,7 +35,7 @@ msgid "Request failed."
 msgstr ""
 
 #: src/Admin.php:56
-#: src/Admin.php:261
+#: src/Admin.php:262
 msgid "Process now"
 msgstr ""
 
@@ -56,7 +56,7 @@ msgid "Served format"
 msgstr ""
 
 #: src/Admin.php:110
-#: src/Admin.php:491
+#: src/Admin.php:492
 msgid "Original"
 msgstr ""
 
@@ -78,7 +78,7 @@ msgid "%1$s of %2$s ready"
 msgstr ""
 
 #: src/Admin.php:114
-#: src/Admin.php:259
+#: src/Admin.php:260
 msgid "Queue"
 msgstr ""
 
@@ -267,160 +267,161 @@ msgstr ""
 msgid "Delete every generated AVIF and WebP file?"
 msgstr ""
 
-#: src/Admin.php:254
-msgid "Remove v6 files"
-msgstr ""
-
-#: src/Admin.php:254
-msgid "Deletes the copies v6 wrote next to each file (photo.avif beside photo.jpg) and its leftover .lock files. v7 names its files differently and never reads those."
-msgstr ""
-
-#: src/Admin.php:254
-msgid "Remove"
-msgstr ""
-
-#: src/Admin.php:254
-msgid "Delete every file left by v6?"
-msgstr ""
-
-#: src/Admin.php:260
+#: src/Admin.php:261
 #, php-format
 msgid "%s images waiting to be converted."
 msgstr ""
 
-#: src/Admin.php:276
-msgid "Also delete the JPEGs Timber resized for v6 (-640x0-c-default.jpg): v7 does not use them, and Timber rebuilds any a template still asks for with |resize."
-msgstr ""
-
-#: src/Admin.php:299
+#: src/Admin.php:300
 msgid "No images need a look."
 msgstr ""
 
-#: src/Admin.php:303
+#: src/Admin.php:304
 msgid "Images the worker could not convert, with the reason. A conversion discarded for weighing more than its original is not listed: that is the tolerance at work."
 msgstr ""
 
-#: src/Admin.php:308
+#: src/Admin.php:309
 msgid "File"
 msgstr ""
 
-#: src/Admin.php:309
+#: src/Admin.php:310
 msgid "Reason"
 msgstr ""
 
-#: src/Admin.php:310
+#: src/Admin.php:311
 msgid "Time"
 msgstr ""
 
-#: src/Admin.php:337
+#: src/Admin.php:338
 msgid "Settings saved."
 msgstr ""
 
-#: src/Admin.php:338
+#: src/Admin.php:339
 msgid "Settings reset to their defaults."
 msgstr ""
 
-#: src/Admin.php:339
+#: src/Admin.php:340
 msgid "The library will be re-encoded in the background."
 msgstr ""
 
-#: src/Admin.php:340
+#: src/Admin.php:341
 msgid "Cache cleared."
 msgstr ""
 
-#: src/Admin.php:346
+#: src/Admin.php:347
 #, php-format
 msgid "%d files deleted."
 msgstr ""
 
-#: src/Admin.php:351
+#: src/Admin.php:352
 msgid "This server can encode neither AVIF nor WebP: images are served in their original format."
 msgstr ""
 
-#: src/Admin.php:353
+#: src/Admin.php:354
 #, php-format
 msgid "This server cannot generate %s, which is the format selected: nothing is being converted."
 msgstr ""
 
-#: src/Admin.php:355
+#: src/Admin.php:356
 msgid "This server cannot generate AVIF. Images are served as WebP or in their original format."
 msgstr ""
 
-#: src/Admin.php:364
-#: src/Admin.php:385
-#: src/Admin.php:441
+#: src/Admin.php:365
+#: src/Admin.php:386
+#: src/Admin.php:442
 msgid "Insufficient permissions"
 msgstr ""
 
-#: src/Admin.php:474
+#: src/Admin.php:475
 msgid "Animated"
 msgstr ""
 
-#: src/Admin.php:484
+#: src/Admin.php:485
 msgid "Pending"
 msgstr ""
 
-#: src/Admin.php:486
+#: src/Admin.php:487
 msgid "Issue"
 msgstr ""
 
-#: src/Admin.php:488
+#: src/Admin.php:489
 #, php-format
 msgid "%d size kept as original: the conversion weighed more"
 msgid_plural "%d sizes kept as original: the conversion weighed more"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/Admin.php:491
+#: src/Admin.php:492
 msgid "Every conversion weighed more than the original"
 msgstr ""
 
-#: src/Admin.php:548
+#: src/Admin.php:549
 msgid "Not available"
 msgstr ""
 
 #. translators: 1: images ready, 2: images in the library
-#: src/Plugin.php:175
+#: src/Migration/V6.php:55
 #, php-format
 msgid "preparing the library while v6 serves the site: %1$s of %2$s images ready. They are converted in the background; `wp timber-avif prepare --all` does it in one go."
 msgstr ""
 
-#: src/Plugin.php:180
+#: src/Migration/V6.php:60
 msgid "the library is ready. Remove the require of avif.php from functions.php: v7 takes over with nothing left to convert."
 msgstr ""
 
+#: src/Migration/V6.php:132
+msgid "Remove v6 files"
+msgstr ""
+
+#: src/Migration/V6.php:133
+msgid "Deletes the copies v6 wrote next to each file (photo.avif beside photo.jpg) and its leftover .lock files. v7 names its files differently and never reads those."
+msgstr ""
+
+#: src/Migration/V6.php:134
+msgid "Remove"
+msgstr ""
+
+#: src/Migration/V6.php:135
+msgid "Delete every file left by v6?"
+msgstr ""
+
+#: src/Migration/V6.php:136
+msgid "Also delete the JPEGs Timber resized for v6 (-640x0-c-default.jpg): v7 does not use them, and Timber rebuilds any a template still asks for with |resize."
+msgstr ""
+
 #. translators: 1: PHP SAPI name, 2: image format
-#: src/Worker.php:145
+#: src/Worker.php:148
 #, php-format
 msgid "This PHP process (%1$s) cannot encode %2$s. Run the queue from the web server, or enable Imagick for this PHP."
 msgstr ""
 
 #. translators: %d: number of attempts
-#: src/Worker.php:201
+#: src/Worker.php:260
 #, php-format
 msgid "Set aside after %d attempts: converting this image stops the PHP process (memory or time limit)."
 msgstr ""
 
-#: src/Worker.php:213
+#: src/Worker.php:272
 msgid "Source file not found"
 msgstr ""
 
-#: src/Worker.php:441
-msgid "Output file invalid (corrupt header)"
-msgstr ""
-
-#: src/Worker.php:455
+#: src/Worker.php:509
+#: src/Worker.php:545
 msgid "Could not move the converted file into place"
 msgstr ""
 
+#: src/Worker.php:531
+msgid "Output file invalid (corrupt header)"
+msgstr ""
+
 #. translators: 1: number of sizes, 2: error message
-#: src/Worker.php:484
+#: src/Worker.php:574
 #, php-format
 msgid "%1$d size failed: %2$s"
 msgid_plural "%1$d sizes failed: %2$s"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/Worker.php:487
+#: src/Worker.php:577
 msgid "Left as it is: the image exceeds the conversion limits (Settings → Limits)."
 msgstr ""

@@ -16,6 +16,9 @@ use TimberAVIF\Lock;
 use TimberAVIF\Renderer;
 use TimberAVIF\Tools;
 use TimberAVIF\Worker;
+use TimberAVIF\Cache;
+use TimberAVIF\Plugin;
+use TimberAVIF\Migration\V6;
 
 require_once ABSPATH . 'wp-admin/includes/image.php';
 require_once ABSPATH . 'wp-admin/includes/file.php';
@@ -56,6 +59,27 @@ function drain(): array {
 		if (!$r['remaining'] || !$r['processed']) break;
 	}
 	return $total;
+}
+
+// WP Rocket's purge API, recorded instead of run — unless the real plugin is active here.
+$GLOBALS['tavif_rocket'] = [];
+if (!function_exists('rocket_clean_post')) {
+	function rocket_clean_post($id) { $GLOBALS['tavif_rocket'][] = "post:$id"; return true; }
+	function rocket_clean_domain($lang = '') { $GLOBALS['tavif_rocket'][] = 'domain'; return true; }
+	function rocket_clean_files($urls) { foreach ((array) $urls as $u) $GLOBALS['tavif_rocket'][] = "url:$u"; }
+}
+function purged(): array { return $GLOBALS['tavif_rocket']; }
+
+function solid(string $path, int $w, int $h, string $color): string {
+	$im = new Imagick();
+	$im->newImage($w, $h, $color);
+	$im->setImageFormat('jpeg');
+	$im->writeImage($path);
+	return $path;
+}
+function colour_of(string $path): string {
+	$c = (new Imagick($path))->getImagePixelColor(5, 5)->getColor();
+	return $c['r'] > $c['b'] ? 'red' : 'blue';
 }
 
 function render(string $tpl, array $ctx = []): string {
@@ -154,8 +178,7 @@ try {
 	check('the modern srcset lists every width', substr_count(Renderer::sources($img, [])['modern']['srcset'], '.avif ') === 9);
 	$atf = render('{{ m.image(img, { sizes: "100vw", atf: true }) }}', ['img' => $img]);
 	check('above the fold: no auto, fetchpriority', str_contains($atf, 'sizes="100vw"') && str_contains($atf, 'fetchpriority="high"') && !str_contains($atf, 'loading='));
-	check('image.avif works on Timber 2', str_ends_with(render('{{ img.avif }}', ['img' => $img]), 'photo-scaled.jpg.avif'), render('{{ img.avif }}', ['img' => $img]));
-	check('image.best works', str_ends_with(render('{{ img.best }}', ['img' => $img]), '.avif'));
+	check('Timber\'s image class is left alone', get_class($img) === 'Timber\\Image', get_class($img));
 	check('|best_src(1280, 720) takes the 16x9 path', str_contains(render('{{ img|best_src(1280, 720) }}', ['img' => $img]), 'photo'));
 	check('a plain URL passes through', Renderer::sources('https://example.com/a.jpg', [])['src'] === 'https://example.com/a.jpg');
 
@@ -245,6 +268,8 @@ try {
 	check('a rotated image is encoded rotated, from the edited file', !$mismatch && count(Index::get($edit_id)['avif'] ?? []) > 3, implode('; ', $mismatch));
 	$files = array_filter(array_column(Index::get($edit_id)['avif'] ?? [], 'file'));
 	check('its copies are named after the edited files', $files && !array_filter($files, fn($f) => !str_contains($f, '-e1')), implode(', ', $files));
+	$orphans = array_filter(glob(dir_of($edit_id) . '/edit-*.avif') ?: [], fn($f) => !str_contains($f, '-e1'));
+	check('and the copies of the unedited file are gone', !$orphans, implode(', ', array_map('basename', $orphans)));
 
 	section('Displayed small');
 	Config::save(['breakpoint_widths' => '480,640,1024,1600'] + Config::all());
@@ -279,13 +304,75 @@ try {
 	Config::reset();
 	wp_delete_post($post_id, true);
 
-	section('v6 API for themes');
-	check('the TimberAVIF class exists again, as v7', class_exists('TimberAVIF') && version_compare(TimberAVIF::VERSION, '7', '>='));
-	$sub = wp_get_attachment_image_url($webp_id, 'tavif-640');
-	$avif_url = TimberAVIF::filter_toavif($sub);
-	check('filter_toavif() on a sub-size URL returns that file\'s AVIF', $avif_url === $sub . '.avif', "$sub → $avif_url");
-	check('image_sources() is v7\'s', TimberAVIF::image_sources($webp_id)['modern'] !== null);
-	check('an unknown URL passes through', TimberAVIF::filter_toavif('https://example.com/x.jpg') === 'https://example.com/x.jpg');
+	section('Single URL: |best_src');
+	check('no global TimberAVIF class', !class_exists('TimberAVIF', false));
+	$webp_img = Timber::get_image($webp_id);
+	$tiny = render('{{ img|best_src(96) }}', ['img' => $webp_img]);
+	check('a width far below every candidate: the smallest meanwhile', str_contains($tiny, '-320x'), $tiny);
+	check('and asked of the worker', in_array(96, array_column(Index::wants($webp_id), 'width'), true), wp_json_encode(Index::wants($webp_id)));
+	render('{{ img|best_src(300) }}', ['img' => $webp_img]);
+	check('a width close to the smallest asks for nothing', !in_array(300, array_column(Index::wants($webp_id), 'width'), true));
+	drain();
+	$tiny = render('{{ img|best_src(96) }}', ['img' => $webp_img]);
+	check('once built, served at that width in AVIF', str_contains($tiny, '-96x') && str_ends_with($tiny, '.avif'), $tiny);
+
+	section('Page cache');
+	delete_transient(Cache::RECENT);
+	delete_option(Cache::DEFERRED);
+	$page = wp_insert_post(['post_title' => 'tavif cache', 'post_status' => 'publish', 'post_content' => '']);
+	$cache_id = upload(solid("$work/cache.jpg", 1800, 1200, 'green'));
+	set_post_thumbnail($page, $cache_id);
+	$term = wp_insert_term('tavif-cache', 'category');
+	update_term_meta($term['term_id'], 'header_image', (string) $cache_id);
+	$GLOBALS['tavif_rocket'] = [];
+	drain();
+	check('once converted, the page that features it is purged', in_array("post:$page", purged(), true), implode(', ', purged()));
+	check('and the category that shows it', in_array('url:' . get_term_link($term['term_id']), purged(), true), implode(', ', purged()));
+	check('but not the whole cache', !in_array('domain', purged(), true));
+	$GLOBALS['tavif_rocket'] = [];
+	drain();
+	check('nothing new, nothing purged', !purged(), implode(', ', purged()));
+
+	update_option('options_footer_logo', (string) $cache_id);
+	Worker::changed($cache_id);
+	Worker::announce();
+	check('used in an ACF options field: everything is purged', in_array('domain', purged(), true), implode(', ', purged()));
+	$GLOBALS['tavif_rocket'] = [];
+	Worker::changed($cache_id);
+	Worker::announce();
+	check('a second full purge within 15 minutes waits', !in_array('domain', purged(), true) && get_option(Cache::DEFERRED));
+	do_action('timber_avif/idle');
+	check('and runs when the queue empties', in_array('domain', purged(), true) && !get_option(Cache::DEFERRED));
+	delete_option('options_footer_logo');
+	wp_delete_term($term['term_id'], 'category');
+	wp_delete_post($page, true);
+	delete_transient(Cache::RECENT);
+
+	section('Replaced in place');
+	$rep_id = upload(solid("$work/replace.jpg", 2000, 1300, 'red'));
+	Renderer::sources($rep_id, ['ratio' => '1/1']);
+	drain();
+	$crop = Renderer::sources($rep_id, ['ratio' => '1/1']);
+	check('before: served in AVIF, crop included', Renderer::sources($rep_id)['modern'] && $crop['modern'] && str_contains($crop['src'], '-tavif.jpg'));
+	// What an import or a sync does: a new picture written over the same file, metadata regenerated.
+	$attached = get_attached_file($rep_id);
+	solid($attached, 2000, 1300, 'blue');
+	$announced = [];
+	add_action('timber_avif/changed', function ($ids) use (&$announced) { $announced = array_merge($announced, $ids); });
+	wp_update_attachment_metadata($rep_id, wp_generate_attachment_metadata($rep_id, $attached));
+	check('its copies stop being served at once', Renderer::sources($rep_id)['modern'] === null);
+	Worker::announce();
+	check('and the change is announced, for the page cache', in_array($rep_id, $announced, true));
+	drain();
+	$data = Renderer::sources($rep_id);
+	$modern_file = dir_of($rep_id) . '/' . wp_basename(explode(' ', explode(', ', (string) ($data['modern']['srcset'] ?? ''))[0])[0]);
+	check('then the new picture is served in AVIF', $data['modern'] && is_file($modern_file) && colour_of($modern_file) === 'blue', $modern_file);
+	$crop = Renderer::sources($rep_id, ['ratio' => '1/1']);
+	$crop_file = dir_of($rep_id) . '/' . wp_basename($crop['src']);
+	check('and the crop is remade from it', is_file($crop_file) && colour_of($crop_file) === 'blue', $crop_file);
+	$on_disk = array_map('basename', array_merge(glob(dir_of($rep_id) . '/replace*.avif') ?: [], glob(dir_of($rep_id) . '/replace*-tavif.*') ?: []));
+	$owned = array_map('basename', Index::files($rep_id, Index::get($rep_id)));
+	check('no file of ours left that the index does not know', !array_diff($on_disk, $owned), implode(', ', array_diff($on_disk, $owned)));
 
 	section('Settings change');
 	$fp = Config::fingerprint();
@@ -346,10 +433,26 @@ try {
 	file_put_contents("$dir/photo-640x0-c-default.avif", 'v6');
 	file_put_contents("$dir/photo-640x427.avif.lock", '');
 	$v7 = count(glob("$dir/*.jpg.avif"));
-	$removed = Tools::purge_v6();
+
+	// Taking over from a site where v6 ran: its option without v7's marker, its hourly cron.
+	update_option(Config::OPTION, ['avif_quality' => 75, 'jpeg_quality' => 95, 'max_inline_conversions' => 10]);
+	wp_schedule_event(time(), 'hourly', 'timber_avif_process_queue');
+	$GLOBALS['tavif_rocket'] = [];
+	V6::take_over();
+	check('taking over: settings stored the v7 way, v6\'s cron gone', get_option(Config::OPTION) === ['_v' => 7] && !wp_next_scheduled('timber_avif_process_queue'), wp_json_encode(get_option(Config::OPTION)));
+	check('the page cache is purged: its pages point at v6\'s files', in_array('domain', purged(), true));
+	check('Tools offer to remove v6\'s files', (bool) get_option(Plugin::V6_LEFTOVERS));
+	delete_option(Plugin::V6_LEFTOVERS);
+	V6::take_over();
+	check('a site without v6 traces: taking over does nothing', !get_option(Plugin::V6_LEFTOVERS));
+	update_option(Plugin::V6_LEFTOVERS, 1);
+	Config::reset();
+
+	$removed = V6::purge();
 	check('v6 copies and locks removed', $removed === 3 && !file_exists("$dir/photo-640x427.avif") && !file_exists("$dir/photo-640x0-c-default.avif") && !file_exists("$dir/photo-640x427.avif.lock"), "$removed removed");
 	@unlink("$dir/photo-640x0-c-default.jpg");
 	check('v7 files untouched', count(glob("$dir/*.jpg.avif")) === $v7);
+	check('once they are gone, so is the tool', !get_option(Plugin::V6_LEFTOVERS));
 
 	section('Deletion');
 	drain();

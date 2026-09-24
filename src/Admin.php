@@ -251,8 +251,9 @@ final class Admin {
 			'rebuild' => [__('Rebuild everything', 'timber-avif'), __('Encode every image again with the current settings — after upgrading the server\'s image libraries, for instance. The current files are served until each is replaced.', 'timber-avif'), __('Rebuild', 'timber-avif'), __('Re-encode the whole library in the background?', 'timber-avif')],
 			'clear_cache' => [__('Clear cache', 'timber-avif'), __('Detect the conversion engines available on this server again, and retry the conversions that failed.', 'timber-avif'), __('Clear', 'timber-avif'), ''],
 			'purge' => [__('Delete conversions', 'timber-avif'), __('Deletes every AVIF and WebP file and every crop Timber AVIF made. Originals are untouched; the files are rebuilt in the background, and until then the originals are served.', 'timber-avif'), __('Delete', 'timber-avif'), __('Delete every generated AVIF and WebP file?', 'timber-avif')],
-			'purge_v6' => [__('Remove v6 files', 'timber-avif'), __('Deletes the copies v6 wrote next to each file (photo.avif beside photo.jpg) and its leftover .lock files. v7 names its files differently and never reads those.', 'timber-avif'), __('Remove', 'timber-avif'), __('Delete every file left by v6?', 'timber-avif'), 'timber_resizes'],
 		];
+		// Only while v6's files may still be on disk.
+		if (get_option(Plugin::V6_LEFTOVERS)) $tools['purge_v6'] = Migration\V6::tool();
 		?>
 		<div class="tavif-tools-grid">
 			<div class="tavif-tool-card">
@@ -272,8 +273,8 @@ final class Admin {
 						<?php wp_nonce_field('timber_avif_tools'); ?>
 						<input type="hidden" name="action" value="timber_avif_tools" />
 						<input type="hidden" name="subaction" value="<?php echo esc_attr($key); ?>" />
-						<?php if ($option === 'timber_resizes') : ?>
-							<label class="tavif-tool-option"><input type="checkbox" name="timber_resizes" value="1" /> <?php esc_html_e('Also delete the JPEGs Timber resized for v6 (-640x0-c-default.jpg): v7 does not use them, and Timber rebuilds any a template still asks for with |resize.', 'timber-avif'); ?></label>
+						<?php if ($option) : ?>
+							<label class="tavif-tool-option"><input type="checkbox" name="timber_resizes" value="1" /> <?php echo esc_html($option); ?></label>
 						<?php endif; ?>
 						<button type="submit" class="button<?php echo str_starts_with($key, 'purge') ? ' tavif-danger' : ''; ?>"<?php if ($confirm) : ?> onclick="return confirm('<?php echo esc_js($confirm); ?>');"<?php endif; ?>><?php echo esc_html($button); ?></button>
 					</form>
@@ -400,7 +401,7 @@ final class Admin {
 				$args['purged'] = Tools::purge();
 				break;
 			case 'purge_v6':
-				$args['purged'] = Tools::purge_v6(!empty($_POST['timber_resizes']));
+				if (get_option(Plugin::V6_LEFTOVERS)) $args['purged'] = Migration\V6::purge(!empty($_POST['timber_resizes']));
 				break;
 		}
 

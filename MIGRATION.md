@@ -16,7 +16,7 @@ The one thing to avoid is switching straight from v6 to v7: v7 does not read v6'
    ```
 
    On the clone of a 1,454-image catalogue that was about 20 images a minute on a laptop — some 75 minutes — because every image uploaded before v7 also gets its canonical JPEG sizes built. A shared host is slower. v6 serves the site meanwhile, so the time is nobody's wait.
-3. **Switch.** When the notice says the library is ready, remove the `require` of `avif.php` from `functions.php`, and the file. The first request stores the settings the way v7 reads them and retires v6's queue, log, crons and cached failures. Nothing is re-encoded: the settings in effect are the same before and after, so every image the worker prepared is already done.
+3. **Switch.** When the notice says the library is ready, remove the `require` of `avif.php` from `functions.php`, and the file. The first request stores the settings the way v7 reads them, retires v6's queue, log, crons and cached failures, and purges WP Rocket's cache — every page cached while v6 rendered points at v6's files. Nothing is re-encoded: the settings in effect are the same before and after, so every image the worker prepared is already done. **With another page cache or a CDN caching HTML, purge it now yourself**, before step 6.
 4. **Point the macro at the package.** In `partial/macros.twig`, replace the body of `image()` with a delegation, and every call site keeps working:
 
    ```twig
@@ -27,8 +27,11 @@ The one thing to avoid is switching straight from v6 to v7: v7 does not read v6'
    ```
 
    From then on, updating the package updates the macro, `sizes="auto"` included. A theme that forked the macro can keep its fork: `image_sources()` returns the same keys it did.
-5. **Remove theme code v7 now does itself.** A `wp_content_img_tag` filter that wraps editor images in a `<picture>` (Mobilissimo has one in `functions/custom.php`) is no longer needed: v7 does it first, and the theme's filter then finds the `<picture>` and returns. Anything else it did — dropping `fetchpriority` from content images, for instance — belongs in a filter of its own.
-6. **Remove what v6 left.** Tools → *Remove v6 files*, or `wp timber-avif purge --v6`. It deletes `photo.avif` / `photo.webp` next to `photo.jpg` (for originals, sub-sizes and Timber resizes alike) and the `.lock` files. With *Also delete the JPEGs Timber resized* (`--timber-resizes`), Timber's `-640x0-c-default.jpg` files go too: v7 never reads them, and on Mobilissimo they were 1 GB, next to 650 MB of v6 AVIF. Every file WordPress lists for an attachment is protected, and Timber rebuilds any resize a template still asks for with `|resize`.
+5. **Remove theme code v7 now does itself, or no longer offers.**
+   - A `wp_content_img_tag` filter that wraps editor images in a `<picture>` (Mobilissimo, `functions/custom.php`): v7 does it first, and the theme's filter finds the `<picture>` and returns. Anything else it did — dropping `fetchpriority` from content images — belongs in a filter of its own.
+   - Calls to v6's static API (`TimberAVIF::filter_toavif()`, `TimberAVIF::forget_failure()`): the class no longer exists, so code guarded by `class_exists()` or `method_exists()` simply stops running. An import that replaces files (Dalmec's sync) needs nothing: v7 notices a replaced file when its metadata is saved, and purges WP Rocket once the new copies exist.
+   - `|toavif`, `|avif_src`, `|webp_src`, `image.avif` / `.webp` / `.best`: gone. `|best_src` stays, for posters and placeholders; anything else is a `macros.image()`.
+6. **Remove what v6 left.** Tools → *Remove v6 files*, or `wp timber-avif purge-v6` — both there only until it is done. It deletes `photo.avif` / `photo.webp` next to `photo.jpg` (for originals, sub-sizes and Timber resizes alike) and the `.lock` files. With *Also delete the JPEGs Timber resized* (`--timber-resizes`), Timber's `-640x0-c-default.jpg` files go too: v7 never reads them, and on Mobilissimo they were 1.2 GB, next to 650 MB of v6 AVIF. Every file WordPress lists for an attachment is protected, and Timber rebuilds any resize a template still asks for with `|resize`. The page cache is purged again afterwards.
 7. **Look at Settings → Timber AVIF once.** A value that differs from the default shows the default next to it.
 
 ### Settings
@@ -43,11 +46,12 @@ A value that differs from both was a choice, and stays. From v7 on only choices 
 ### What behaves differently
 
 - **Nothing is converted while a page renders.** v6 converted up to ten files inline, then after the response, then in a queue. v7 only ever reads.
-- **Only library images get modern formats.** A theme asset or external URL passed to the macro, or to `|toavif`, is served as it is. Those are better converted once by the theme's build.
+- **The Twig API is the macro, `image_sources()` and `|best_src`.** See step 5.
+- **Only library images get modern formats.** A theme asset or external URL passed to the macro, or to `|best_src`, is served as it is. Those are better converted once by the theme's build.
 - **`widths` picks from Settings → Widths.** Files exist only for the configured widths, so a per-call width outside them is ignored (and logged under `WP_DEBUG`). To add a width, add it in Settings: it is built for the whole library in the background.
 - **`max` below every configured width** is built on request, like a crop: the first render asks for it, the worker builds it. v6 built it on the spot.
 - **`ratio` is built on request.** The first render of a new ratio records it and returns the uncropped files in a box of that ratio; the worker builds the crops shortly after.
-- **`avif_src(w, h)`, `webp_src`, `best_src`** return the closest existing width at or above `w` — cropped when `h` is given — instead of a file resized to exactly that size.
+- **`|best_src(w, h)`** returns the closest existing width at or above `w` — cropped when `h` is given — instead of a file resized to exactly that size; a width well below every configured one is built on request.
 - **Settings removed:** *Pre-generate on upload* and its widths (every width is built at upload now) and *Per page* (there is no inline conversion to budget). **Added:** *Content images*.
 - **The Logs tab is now Issues**: the images that currently have a problem, with the reason, instead of the last 200 events.
 - **Requirements:** PHP 8.1 and WordPress 6.5, for AVIF support in WordPress's image editors.

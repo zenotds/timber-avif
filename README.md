@@ -15,6 +15,7 @@ v6 converted files while pages rendered, and asked the disk what existed. Most o
 - **Encoding goes through WordPress's image editors**, from the file WordPress serves as full size. Colour profiles and EXIF orientation are kept: v6's Imagick engine stripped the ICC profile, and GD — which it tried first — never had one, so Display P3 photos changed colour.
 - **Modern files are named after the file they replace** (`photo-640x427.jpg.avif`) and listed in the index, so deleting an image deletes them. v6 swapped the extension, so `photo.jpg`, `photo.png` and an uploaded `photo.avif` all claimed the same path, and nothing ever deleted its copies.
 - **Images in post content** get a `<picture>` too, through `wp_content_img_tag`.
+- **Page caches are purged when images change** — with WP Rocket built in, through an action for anything else — and a file replaced in place by an import is re-encoded instead of served in its old version.
 - **Settings store only what differs from the defaults**, so a value left alone follows future defaults. Still edited under Settings → Timber AVIF.
 - **A Composer package** (or a drop-in folder), with the macro shipped as `@timber-avif/macros.twig`, so themes stop carrying copies that drift.
 
@@ -106,26 +107,39 @@ A theme whose `partial/macros.twig` holds other macros too can keep every call s
 
 `width` and `height` are always emitted, so the CLS audit is satisfied without cropping a file.
 
-### Filters and properties
+### A single URL
+
+For what cannot be a `<picture>` — a video poster, a CSS background, a blurred placeholder:
 
 ```twig
-{{ image.avif }}   {# full size as AVIF, or the original #}
-{{ image.webp }}   {# full size as WebP, or the original #}
-{{ image.best }}   {# the format being served, or the original #}
-
-{{ image|toavif }}
-{{ image|best_src(1280, 720) }}   {# smallest width ≥ 1280, cropped to 16:9 #}
+{{ macros.mp4(video.url, { poster: poster|best_src(1280, 720) }) }}   {# smallest width ≥ 1280, cropped to 16:9 #}
+<img class="blur-2xl" src="{{ cover|best_src(96) }}" alt="">          {# a 96px placeholder #}
 ```
 
-`avif_src`, `webp_src` and `best_src` pick the closest existing width at or above the one asked for; v6 resized to the exact size, inline. On the URL of one particular file — a sub-size — `|toavif` returns that file's own copy. A theme with its own Timber image class keeps it, and adds the three properties with `use \TimberAVIF\ModernSources;`.
+`|best_src` returns the smallest existing width at or above the one asked for, in the served format when a copy exists, otherwise the fallback file. A width well below every configured one — the 96px placeholder — is built for that image on request, like `max`; until then the smallest width is served. Browsers that cannot decode the modern format get no fallback from a single URL, as they would not from a `<picture>` either.
 
-### From PHP
-
-v6's static API is still there, backed by v7, for themes that call it: `TimberAVIF::image_sources()`, `TimberAVIF::filter_toavif()`, `filter_avif_src()`, `filter_webp_src()`, `filter_best_src()`.
+That is the whole Twig API: the macro, `image_sources()` behind it, and `|best_src`. v6's `|toavif`, `|avif_src`, `|webp_src` and `image.avif` / `.webp` / `.best` are gone — searching every theme on disk found them used nowhere, and the properties had not worked under Timber 2 for years.
 
 ### Content images
 
 Images in post content and ACF WYSIWYG fields — anything that goes through `wp_filter_content_tags` — are wrapped in a `<picture class="tavif-content" style="display:contents">` with the modern `<source>`. `display: contents` means the wrapper makes no box, so margins, floats and `align*` classes on the `<img>` behave as before; WordPress's `<img>` itself is untouched. Cropped sizes (thumbnails, a theme's squares) are left as they are. Settings → Content turns it off.
+
+### Page cache
+
+A page cached before its images were converted serves them as JPEG — complete, not broken — until the cache lets it go. So whenever the markup of an image changes — its modern set becomes complete, a crop or a small width is built, a replaced file stops being served in the old version — the worker announces it:
+
+```php
+do_action('timber_avif/changed', $attachment_ids);   // after a worker pass, or at the end of the request
+do_action('timber_avif/idle');                       // the queue is empty
+```
+
+With **WP Rocket** active, Timber AVIF listens itself: it purges the published posts that show the image (featured image, content, custom fields, the post it was uploaded to) and the terms that do (a category's header image). If the image is used site-wide — an ACF options field, the logo, the site icon — or more than 50 pages would need purging, it purges everything, at most once every 15 minutes while a backlog is being converted and once more when the queue empties. Any other cache can listen to the same action.
+
+Deleting files goes the other way round: a browser does not fall back from a `<source>` that fails, so a cached page pointing at a deleted AVIF shows a broken image. *Delete conversions* and *Remove v6 files* purge the whole cache after removing the files, and so does the switch from v6.
+
+### Replaced files
+
+An import or a sync that writes a new picture over an attachment's file keeps its name and URL. Timber AVIF records the file every copy was made from — name, size, a hash of its first 256 KB — and when the metadata is saved again with a different file, it stops serving the old copies at once (the new JPEG is served meanwhile) and the worker makes them again, crops included. Nothing needs calling: saving the metadata, as `wp_update_attachment_metadata()` does, is enough.
 
 ## How it works
 
@@ -143,7 +157,7 @@ The worker is protected against the cases that stall a queue: an image slower th
 Settings → Timber AVIF.
 
 - **Settings**: format (auto, AVIF, WebP, none), quality per format, widths, content images, upload and conversion limits, the discard tolerance. Each value that differs from its default shows the default next to it; *Reset to defaults* removes them all.
-- **Tools**: *Process now* works through the queue from the browser. *Rebuild everything* re-encodes the library, after upgrading the server's image libraries for instance. *Clear cache* detects the engines again and retries failures. *Delete conversions* removes every generated file, rebuilt in the background. *Remove v6 files* deletes what v6 left behind, optionally with Timber's resized JPEGs.
+- **Tools**: *Process now* works through the queue from the browser. *Rebuild everything* re-encodes the library, after upgrading the server's image libraries for instance. *Clear cache* detects the engines again and retries failures. *Delete conversions* removes every generated file, rebuilt in the background. After a move from v6, *Remove v6 files* until they are gone.
 - **Issues**: the images the worker could not convert, with the reason.
 
 The media library gets a column with each image's state.
@@ -155,13 +169,11 @@ wp timber-avif status                        # format, engine, widths, pending c
 wp timber-avif work [--all]                  # convert pending images; --all until the queue is empty
 wp timber-avif rebuild                       # re-encode everything with the current settings
 wp timber-avif purge                         # delete generated files
-wp timber-avif purge --v6 [--timber-resizes] # delete what v6 left behind
 wp timber-avif detect                        # which engine encodes AVIF / WebP in this PHP
 wp timber-avif clear-cache                   # detect the engines again
-wp timber-avif prepare [--all]               # while v6 is still loaded: convert for v7
 ```
 
-`bulk` and `queue` still work, as aliases of `work --all` and `work`.
+While moving a site from v6, two more exist: `prepare` next to v6, and `purge-v6` until v6's files are removed — see [MIGRATION.md](MIGRATION.md#from-v61x-to-v70).
 
 The CLI may be a different PHP build than the web server. If it cannot encode the format being served, `work` says so and does nothing, rather than recording failures the web server would not have.
 
@@ -206,6 +218,10 @@ The admin ships in English and loads a `.mo` matching the user's admin language.
 wp i18n make-pot . languages/timber-avif.pot --domain=timber-avif --exclude=tests,vendor,assets
 msgfmt -o languages/timber-avif-fr_FR.mo languages/timber-avif-fr_FR.po
 ```
+
+## Code layout
+
+Everything that exists only to move a site from v6 lives in `src/Migration/V6.php`. It runs while v6 is still loaded next to v7, once when v7 first runs on a site v6 left traces on, and while v6's files are still on disk; a site that never ran v6 does not load it past that first check. It goes in v8, once every site has moved.
 
 ## Notes
 
