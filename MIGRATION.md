@@ -1,5 +1,12 @@
 # Migration Guide
 
+## From v7.0.3 to v7.0.4
+
+**Not breaking.** `composer update zenotds/timber-avif`, nothing else to do.
+
+- **Indexed PNGs through GD.** libgd writes neither AVIF nor WebP from a palette image: it writes an empty file and reports success. Only a resize makes a truecolor copy, so an 8-bit PNG lost the copy at its own size, listed under Issues as "Output file invalid (corrupt header)". It is now converted to truecolor first, transparency kept. The images listed are retried within a day, or at once with Tools → *Clear cache*.
+- **Issues counts files.** WPML gives every language an attachment of the same file, and they fail together: the tab counted each of them, while the list — filtered by WPML to the admin's language — showed one. Both now go by file, in every language.
+
 ## From v7.0.2 to v7.0.3
 
 **Not breaking.** `composer update zenotds/timber-avif`, nothing else to do.

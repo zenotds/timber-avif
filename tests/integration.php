@@ -9,6 +9,7 @@
  */
 
 use Timber\Timber;
+use TimberAVIF\Admin;
 use TimberAVIF\Config;
 use TimberAVIF\Engine;
 use TimberAVIF\Index;
@@ -481,6 +482,16 @@ try {
 	clearstatcache();
 	check('the translation is served in AVIF, crop included', Renderer::sources($en_id)['modern'] && Renderer::sources($en_id, ['ratio' => '1/1'])['modern']);
 	check('from the copies the other language made: nothing encoded twice', $inodes === array_map('fileinode', $shared_files));
+	// Every language of a file fails together: Issues counts and lists the file once, whatever the admin language.
+	$issue_count = new ReflectionMethod(Admin::class, 'issue_count');
+	$render_issues = new ReflectionMethod(Admin::class, 'render_issues');
+	$before = $issue_count->invoke(null);
+	foreach ([$it_id, $en_id] as $twin) update_post_meta($twin, Index::ISSUE, ['text' => 'test', 'at' => time()]);
+	ob_start();
+	$render_issues->invoke(null);
+	$issues_html = (string) ob_get_clean();
+	check('Issues counts and lists a file once, not once per language', $issue_count->invoke(null) === $before + 1 && substr_count($issues_html, '>' . wp_basename(get_attached_file($it_id)) . '</a>') === 1);
+	foreach ([$it_id, $en_id] as $twin) delete_post_meta($twin, Index::ISSUE);
 	// WPML keeps the JPEGs another language still uses; this stands in for its wp_delete_file filter.
 	add_filter('wp_delete_file', '__return_false', PHP_INT_MAX);
 	wp_delete_attachment($en_id, true);

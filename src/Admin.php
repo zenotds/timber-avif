@@ -285,18 +285,21 @@ final class Admin {
 	}
 
 	private static function render_issues(): void {
+		global $wpdb;
 		$page = max(1, (int) ($_GET['paged'] ?? 1));
-		$query = new \WP_Query([
-			'post_type'      => 'attachment',
-			'post_status'    => 'any',
-			'meta_key'       => Index::ISSUE,
-			'posts_per_page' => 50,
-			'paged'          => $page,
-			'orderby'        => 'ID',
-			'order'          => 'DESC',
-		]);
+		$per_page = 50;
+		// One row per file, not per attachment: WPML gives each language an attachment of the
+		// same file, and they fail together. Not through WP_Query, which WPML narrows to the
+		// admin's language while the count covered them all — Issues (12) above three rows.
+		$ids = array_map('intval', $wpdb->get_col($wpdb->prepare(
+			"SELECT MIN(i.post_id) " . self::issues_from() . " GROUP BY f.meta_value ORDER BY MIN(i.post_id) DESC LIMIT %d OFFSET %d",
+			Index::ISSUE,
+			$per_page,
+			($page - 1) * $per_page
+		)));
+		$pages = (int) ceil(self::issue_count() / $per_page);
 
-		if (!$query->posts) {
+		if (!$ids) {
 			echo '<p class="description">' . esc_html__('No images need a look.', 'timber-avif') . '</p>';
 			return;
 		}
@@ -312,11 +315,11 @@ final class Admin {
 				</tr>
 			</thead>
 			<tbody>
-				<?php foreach ($query->posts as $post) :
-					$issue = (array) get_post_meta($post->ID, Index::ISSUE, true); ?>
+				<?php foreach ($ids as $id) :
+					$issue = (array) get_post_meta($id, Index::ISSUE, true); ?>
 					<tr>
-						<td class="tavif-log-thumb"><?php echo wp_get_attachment_image($post->ID, [40, 40]); ?></td>
-						<td class="tavif-log-file"><a href="<?php echo esc_url(get_edit_post_link($post->ID) ?: ''); ?>"><?php echo esc_html(wp_basename((string) get_attached_file($post->ID))); ?></a></td>
+						<td class="tavif-log-thumb"><?php echo wp_get_attachment_image($id, [40, 40]); ?></td>
+						<td class="tavif-log-file"><a href="<?php echo esc_url(get_edit_post_link($id) ?: ''); ?>"><?php echo esc_html(wp_basename((string) get_attached_file($id))); ?></a></td>
 						<td class="tavif-log-reason"><?php echo esc_html($issue['text'] ?? ''); ?></td>
 						<td class="tavif-log-time"><?php echo esc_html(!empty($issue['at']) ? wp_date('Y-m-d H:i', (int) $issue['at']) : ''); ?></td>
 					</tr>
@@ -324,13 +327,28 @@ final class Admin {
 			</tbody>
 		</table>
 		<?php
-		if ($query->max_num_pages > 1) {
+		if ($pages > 1) {
 			echo '<div class="tablenav"><div class="tablenav-pages">' . paginate_links([
 				'base'    => add_query_arg('paged', '%#%', self::url(['tab' => 'issues'])),
 				'current' => $page,
-				'total'   => $query->max_num_pages,
+				'total'   => $pages,
 			]) . '</div></div>';
 		}
+	}
+
+	/** Issues of attachments neither trashed nor half-created, each with the file it stands for. */
+	private static function issues_from(): string {
+		global $wpdb;
+		return "FROM {$wpdb->postmeta} i
+			JOIN {$wpdb->postmeta} f ON f.post_id = i.post_id AND f.meta_key = '_wp_attached_file'
+			JOIN {$wpdb->posts} p ON p.ID = i.post_id AND p.post_status NOT IN ('trash', 'auto-draft')
+			WHERE i.meta_key = %s";
+	}
+
+	/** Files with an issue: the number on the tab and the rows under it. */
+	private static function issue_count(): int {
+		global $wpdb;
+		return (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(DISTINCT f.meta_value) " . self::issues_from(), Index::ISSUE));
 	}
 
 	private static function render_notices(): void {
@@ -515,7 +533,7 @@ final class Admin {
 		$mimes = "'" . implode("','", array_map('esc_sql', Config::SOURCE_MIMES)) . "'";
 		$total = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'attachment' AND post_mime_type IN ($mimes)");
 		$pending = min($total, Worker::count_pending());
-		$issues = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(DISTINCT post_id) FROM {$wpdb->postmeta} WHERE meta_key = %s", Index::ISSUE));
+		$issues = self::issue_count();
 
 		return ['format' => Config::format(), 'total' => $total, 'pending' => $pending, 'issues' => $issues] + self::savings();
 	}

@@ -1,4 +1,4 @@
-# Timber AVIF (v7.0.3)
+# Timber AVIF (v7.0.4)
 
 Responsive images for Timber 2.x. Generates AVIF (or WebP) copies of every image in the media library **in the background**, and builds a `<picture>` whose markup depends only on what has been recorded — never on what a page render managed to convert.
 

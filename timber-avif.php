@@ -2,7 +2,7 @@
 /**
  * Timber AVIF
  *
- * @version 7.0.3
+ * @version 7.0.4
  * @author Francesco Zeno Selva
  * @link https://github.com/zenotds/timber-avif
  *

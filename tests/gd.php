@@ -26,6 +26,7 @@ $real = function_exists('imageavif');
 if (!$real) {
 	function imageavif($image, $file = null, int $quality = -1, int $speed = -1): bool {
 		$GLOBALS['tavif_gd']['call'] = [$quality, $speed];
+		$GLOBALS['tavif_gd']['truecolor'] = imageistruecolor($image);
 		return (bool) file_put_contents($file, 'stand-in');
 	}
 }
@@ -55,6 +56,36 @@ try {
 	}
 	$GLOBALS['tavif_gd']['call'] = null;
 	gcheck('other formats are left to WordPress', $editor->write("$dir/photo.webp", 'imagewebp', 75) && is_file("$dir/photo.webp") && $GLOBALS['tavif_gd']['call'] === null);
+
+	// An 8-bit PNG, at its own size: no resize makes a truecolor copy of it. libgd writes an
+	// empty file from a palette image, for AVIF and WebP alike, and reports success.
+	$pal = imagecreate(400, 300);
+	imagecolorallocate($pal, 30, 90, 160);
+	$clear = imagecolorallocate($pal, 255, 255, 255);
+	imagecolortransparent($pal, $clear);
+	imagefilledrectangle($pal, 0, 0, 99, 99, $clear);
+	imagepng($pal, "$dir/indexed.png");
+	$indexed = new class("$dir/indexed.png") extends Gd {
+		public function write(string $dest, string $callback, int $quality): bool {
+			return (bool) $this->make_image($dest, $callback, [$this->image, $dest, $quality]);
+		}
+		public function alpha_at(int $x, int $y): int {
+			return (imagecolorat($this->image, $x, $y) >> 24) & 0x7F;
+		}
+	};
+	$indexed->load();
+	gcheck('an indexed PNG loads as a palette image', !imageistruecolor((new ReflectionProperty(WP_Image_Editor_GD::class, 'image'))->getValue($indexed)));
+	$indexed->write("$dir/indexed.png.webp", 'imagewebp', 90);
+	clearstatcache();
+	gcheck('its WebP is written, not left empty', Engine::is_valid("$dir/indexed.png.webp", 'webp'), is_file("$dir/indexed.png.webp") ? filesize("$dir/indexed.png.webp") . ' bytes' : 'missing');
+	gcheck('transparency survives the conversion', $indexed->alpha_at(10, 10) === 127 && $indexed->alpha_at(200, 200) === 0);
+	if (!$real) {
+		$indexed->write("$dir/indexed.png.avif", 'imageavif', 75);
+		gcheck('imageavif() is handed a truecolor image', $GLOBALS['tavif_gd']['truecolor'] === true);
+	} else {
+		$indexed->write("$dir/indexed.png.avif", 'imageavif', 75);
+		gcheck('its AVIF is written, not left empty', Engine::is_valid("$dir/indexed.png.avif", 'avif'));
+	}
 } catch (Throwable $e) {
 	$GLOBALS['tavif_gd']['failures']++;
 	echo "\n  ERROR " . $e->getMessage() . "\n  " . $e->getFile() . ':' . $e->getLine() . "\n";
