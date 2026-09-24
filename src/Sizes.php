@@ -166,13 +166,26 @@ final class Sizes {
 	}
 
 	/**
+	 * Does the source already have these proportions? Then cropping to them would only
+	 * resize: the files the uncropped set has, written again under -tavif names. And the
+	 * widest, which is the source itself, WordPress refuses to make at all — "Could not
+	 * calculate resized image dimensions" — since it ignores a difference of a pixel. Such
+	 * a ratio is served uncropped.
+	 */
+	public static function matches_ratio(int $w, int $h, float $ratio): bool {
+		if ($w < 1 || $h < 1 || $ratio <= 0) return false;
+		return $w - min($w, floor($h * $ratio)) <= 1 && $h - min($h, floor($w / $ratio)) <= 1;
+	}
+
+	/**
 	 * The crops to build for one ratio: each configured width the source can cover, plus
-	 * the widest crop it allows, capped at the generation ceiling.
+	 * the widest crop it allows, capped at the generation ceiling. None when the source
+	 * already has the ratio (matches_ratio()).
 	 *
 	 * @return array<int, array{w: int, h: int}>
 	 */
 	public static function crop_targets(int $src_w, int $src_h, float $ratio, array $widths): array {
-		if ($src_w < 1 || $src_h < 1 || $ratio <= 0) return [];
+		if ($src_w < 1 || $src_h < 1 || $ratio <= 0 || self::matches_ratio($src_w, $src_h, $ratio)) return [];
 
 		$widest = (int) min($src_w, floor($src_h * $ratio), Config::MAX_GENERATED_WIDTH);
 		$targets = [];

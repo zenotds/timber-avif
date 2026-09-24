@@ -446,7 +446,8 @@ final class Worker {
 			if ($want['ratio'] === '') {
 				// An uncropped width below every configured one, for an image displayed small.
 				$w = (int) $want['width'];
-				if (!$w || isset($widths[$w]) || $w >= $fw || $w > Config::MAX_GENERATED_WIDTH) continue;
+				// A pixel short of the source is the source: WordPress would refuse to make it.
+				if (!$w || isset($widths[$w]) || $w >= $fw - 1 || $w > Config::MAX_GENERATED_WIDTH) continue;
 				$h = max(1, (int) round($w * $fh / $fw));
 				$targets[] = ['file' => "{$stem}-{$w}x{$h}-tavif.{$ext}", 'w' => $w, 'h' => $h, 'crop' => false, 'make' => true, 'ratio' => ''];
 				$widths[$w] = true;

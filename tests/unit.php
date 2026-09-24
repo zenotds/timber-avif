@@ -82,6 +82,9 @@ check('4/1 crops of a 2560×1707 source', Sizes::crop_targets(2560, 1707, 4.0, [
 	['w' => 640, 'h' => 160], ['w' => 1280, 'h' => 320], ['w' => 2560, 'h' => 640],
 ]);
 check('a tall crop is bounded by the source height', array_column(Sizes::crop_targets(2560, 1707, 0.5, [320, 640, 1024]), 'w'), [320, 640, 853]);
+check('a square source already is 1/1', [Sizes::matches_ratio(1200, 1200, 1.0), Sizes::matches_ratio(1001, 1000, 1.0), Sizes::matches_ratio(1000, 750, 4 / 3)], [true, true, true]);
+check('a 3:2 photo is not 16/9, nor 1/1', [Sizes::matches_ratio(1920, 1280, 16 / 9), Sizes::matches_ratio(1920, 1280, 1.0)], [false, false]);
+check('no crops to build for the proportions the source has', Sizes::crop_targets(1200, 1200, 1.0, [320, 640, 1024]), []);
 
 $crops = [['w' => 640, 'h' => 160, 'file' => 'a.jpg'], ['w' => 1280, 'h' => 320, 'file' => 'b.jpg'], ['w' => 2560, 'h' => 640, 'file' => 'c.jpg']];
 check('crop candidates keep the widest crop', $w(Sizes::crop_candidates($crops, [640])), [640, 2560]);

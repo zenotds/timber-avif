@@ -411,6 +411,21 @@ try {
 		return $size && abs($size[0] / $size[1] - 4) < 0.02;
 	})());
 
+	section('A crop to the proportions the image has');
+	// A pixel wider than square: WordPress refuses that crop with either editor. At exactly
+	// 1200×1200 its resize() returns early; GD's _resize(), which the worker calls, does not.
+	$square_id = upload(solid("$work/square.jpg", 1201, 1200, 'green'));
+	// As one rendered before 7.0.5 left it: a 1x1 request, whose widest crop is the image itself.
+	add_post_meta($square_id, Index::WANT, '1x1');
+	$sq = Renderer::sources($square_id, ['ratio' => '1/1']);
+	check('asked as 1/1, a square image is served uncropped', !str_contains($sq['src'] . $sq['srcset'], '-tavif') && abs($sq['width'] / $sq['height'] - 1) < 0.01, $sq['src']);
+	check('and asks for no crop', array_column(Index::wants($square_id), 'ratio') === ['1x1']);
+	drain();
+	$sq = Renderer::sources($square_id, ['ratio' => '1/1']);
+	check('converted without an issue', $sq['modern'] !== null && !get_post_meta($square_id, Index::ISSUE, true), wp_json_encode(get_post_meta($square_id, Index::ISSUE, true)));
+	check('no crop written: they would only repeat the uncropped files', !glob(dir_of($square_id) . '/square-*-tavif.*'));
+	check('|best_src at its own proportions is uncropped too', !str_contains(Renderer::url($square_id, 600, 600), '-tavif'));
+
 	section('Deadline');
 	Config::bump_generation();
 	$partial = Worker::process($id, microtime(true) - 1);

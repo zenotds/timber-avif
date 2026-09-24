@@ -1,5 +1,11 @@
 # Migration Guide
 
+## From v7.0.4 to v7.0.5
+
+**Not breaking.** `composer update zenotds/timber-avif`, nothing else to do.
+
+A crop to the proportions an image already has — `ratio: '1/1'` on a square photo — is now served uncropped. Before, every width was built a second time as a `-tavif` crop identical to the uncropped one, and the widest, which is the image itself, failed: WordPress will not "resize" to the same dimensions, give or take a pixel, and Issues listed "Could not calculate resized image dimensions". With GD it failed at the exact size, with either editor a pixel off. Those images are retried within a day, or at once with Tools → *Clear cache*; their duplicate crops are deleted when they are.
+
 ## From v7.0.3 to v7.0.4
 
 **Not breaking.** `composer update zenotds/timber-avif`, nothing else to do.

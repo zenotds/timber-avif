@@ -52,6 +52,8 @@ final class Renderer {
 		$widths = self::widths($opts['widths'] ?? []);
 		$max = !empty($opts['max']) ? (int) $opts['max'] : null;
 		$ratio = self::parse_ratio($opts['ratio'] ?? null);
+		// A square photo asked for as 1/1 is its own crop: served uncropped, nothing to build.
+		if ($ratio && Sizes::matches_ratio($fw, $fh, $ratio['value'])) $ratio = null;
 
 		$candidates = self::candidates($id, $meta, $index, $widths, $max, $ratio);
 		if (!$candidates) {
@@ -109,6 +111,7 @@ final class Renderer {
 		$height = $height !== null ? (int) round((float) $height) : null;
 		// As "1280/720", so it reduces to the same "16x9" crop set a template's ratio: '16/9' uses.
 		$ratio  = ($width && $height) ? self::parse_ratio("$width/$height") : null;
+		if ($ratio && Sizes::matches_ratio((int) $meta['width'], (int) ($meta['height'] ?? 0), $ratio['value'])) $ratio = null;
 
 		$candidates = self::candidates($id, $meta, $index, Config::widths(), $width, $ratio);
 		if (!$candidates) return $full_url;
