@@ -287,6 +287,7 @@ final class Worker {
 		$dir = dirname($attached);
 		$key = Config::encoding_key();
 		$targets = self::targets($id, $meta, $mime);
+		[$shared, $twin_entries] = self::twins($id, $format, $attached);
 
 		$entries = (array) ($index[$format] ?? []);
 		$source = null;
@@ -297,6 +298,14 @@ final class Worker {
 		foreach ($targets as $t) {
 			$entry = $entries[$t['file']] ?? null;
 			if (self::up_to_date($entry, $key, $dir)) continue;
+
+			// Made already by a translation of the same file. A crop or width of ours needs its
+			// fallback on disk too, and one made before the source was replaced is made again.
+			$twin = $twin_entries[$t['file']] ?? null;
+			if ($twin && self::up_to_date($twin, $key, $dir) && (!$t['make'] || (is_file("$dir/{$t['file']}") && empty($index['remake'])))) {
+				$entries[$t['file']] = $twin;
+				continue;
+			}
 
 			// At least one encode per pass, so an image slower than the budget still advances.
 			if ($done > 0 && microtime(true) >= $deadline) {
@@ -330,7 +339,7 @@ final class Worker {
 				}
 			}
 
-			$entries[$t['file']] = self::encode($editor, $t, $dir, $format, $key, $entry);
+			$entries[$t['file']] = self::encode($editor, $t, $dir, $format, $key, $entry, $shared);
 			$done++;
 		}
 
@@ -350,9 +359,9 @@ final class Worker {
 		if ($finished) {
 			// Every file this index owned before the pass and no longer does is deleted — a
 			// replaced source's copies not written over, a crop of an edited image, a removed
-			// width. Nothing else knows they exist.
+			// width. Nothing else knows they exist. Those a twin serves stay.
 			unset($index['old']);
-			foreach (array_diff($owned_before, Index::owned_names($index)) as $name) @unlink("$dir/$name");
+			foreach (array_diff($owned_before, Index::owned_names($index), array_keys($shared)) as $name) @unlink("$dir/$name");
 		}
 
 		if (!$finished) {
@@ -384,6 +393,29 @@ final class Worker {
 		else delete_post_meta($id, Index::ISSUE);
 
 		return true;
+	}
+
+	/**
+	 * What the translations of this file have (Index::twins()): the names they own, which
+	 * this pass never deletes, and their entries for copies made from the same picture,
+	 * taken over instead of encoding the same files a second time. Twins that have not
+	 * finished a pass since the file changed offer nothing.
+	 *
+	 * @return array{0: array<string, int>, 1: array<string, array>}
+	 */
+	private static function twins(int $id, string $format, string $attached): array {
+		$twins = Index::twins($id);
+		if (!$twins) return [[], []];
+
+		$source = Index::source_record($attached);
+		$names = [];
+		$entries = [];
+		foreach ($twins as $twin) {
+			$index = Index::get($twin);
+			$names = array_merge($names, Index::owned_names($index));
+			if (($index['source'] ?? null) === $source && empty($index['remake'])) $entries += (array) ($index[$format] ?? []);
+		}
+		return [array_flip($names), $entries];
 	}
 
 	/**
@@ -512,9 +544,10 @@ final class Worker {
 	}
 
 	/**
-	 * Write one modern copy, and decide whether it is worth keeping.
+	 * Write one modern copy, and decide whether it is worth keeping. A copy discarded as
+	 * heavier stays on disk while a twin still lists it ($shared): its own pass drops it.
 	 */
-	private static function encode($editor, array $t, string $dir, string $format, string $key, ?array $previous): array {
+	private static function encode($editor, array $t, string $dir, string $format, string $key, ?array $previous, array $shared = []): array {
 		$dest = "$dir/{$t['file']}.$format";
 		// Written aside and renamed into place: the file may be live, and a visitor must never get half of it.
 		$tmp = "$dir/{$t['file']}.tavif-" . wp_generate_password(6, false) . ".$format";
@@ -536,7 +569,7 @@ final class Worker {
 
 		if (Config::get('only_if_smaller') && $baseline && Engine::exceeds_tolerance($baseline, $bytes)) {
 			@unlink($tmp);
-			@unlink($dest);
+			if (!isset($shared[basename($dest)])) @unlink($dest);
 			return ['skip' => 'larger', 'key' => $key, 'at' => time(), 'bytes' => $bytes, 'src_bytes' => $baseline];
 		}
 

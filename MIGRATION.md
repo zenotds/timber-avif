@@ -1,5 +1,12 @@
 # Migration Guide
 
+## From v7.0.1 to v7.0.2
+
+**Not breaking.** `composer update zenotds/timber-avif`, nothing else to do.
+
+- **Languages sharing a file.** WPML and Polylang give each language its own attachment of one file. Deleting one language deleted the AVIF copies the others still served, and their pages showed a broken image; the copies now go with the last attachment of the file. The second language also takes over the copies the first encoded, instead of encoding them again.
+- **The type `.avif` is served with.** Apache without an entry for `.avif` in its `mime.types` sent `photo.jpg.avif` as `image/jpeg`. On Apache and LiteSpeed the site's `.htaccess` now gets a `# BEGIN Timber AVIF` block with the right type, added on the first request after the update and checked every hour; elsewhere the settings page says what to add. See [README](README.md#the-servers-content-type).
+
 ## From v7.0.0 to v7.0.1
 
 **Not breaking.** `composer update zenotds/timber-avif`, nothing else to do.

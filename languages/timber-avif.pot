@@ -7,7 +7,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-09-24T08:45:57+00:00\n"
+"POT-Creation-Date: 2026-09-24T12:34:28+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: timber-avif\n"
@@ -56,7 +56,7 @@ msgid "Served format"
 msgstr ""
 
 #: src/Admin.php:110
-#: src/Admin.php:492
+#: src/Admin.php:505
 msgid "Original"
 msgstr ""
 
@@ -326,36 +326,42 @@ msgstr ""
 msgid "This server cannot generate AVIF. Images are served as WebP or in their original format."
 msgstr ""
 
+#. translators: 1: format, 2: MIME type the server sends, 3: the right one
 #: src/Admin.php:365
-#: src/Admin.php:386
-#: src/Admin.php:442
+#, php-format
+msgid "The server sends %1$s files as %2$s instead of %3$s. Browsers show them anyway, but developer tools, PageSpeed and CDNs take them for what the header says."
+msgstr ""
+
+#: src/Admin.php:378
+#: src/Admin.php:399
+#: src/Admin.php:455
 msgid "Insufficient permissions"
 msgstr ""
 
-#: src/Admin.php:475
+#: src/Admin.php:488
 msgid "Animated"
 msgstr ""
 
-#: src/Admin.php:485
+#: src/Admin.php:498
 msgid "Pending"
 msgstr ""
 
-#: src/Admin.php:487
+#: src/Admin.php:500
 msgid "Issue"
 msgstr ""
 
-#: src/Admin.php:489
+#: src/Admin.php:502
 #, php-format
 msgid "%d size kept as original: the conversion weighed more"
 msgid_plural "%d sizes kept as original: the conversion weighed more"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/Admin.php:492
+#: src/Admin.php:505
 msgid "Every conversion weighed more than the original"
 msgstr ""
 
-#: src/Admin.php:549
+#: src/Admin.php:562
 msgid "Not available"
 msgstr ""
 
@@ -389,6 +395,18 @@ msgstr ""
 msgid "Also delete the JPEGs Timber resized for v6 (-640x0-c-default.jpg): v7 does not use them, and Timber rebuilds any a template still asks for with |resize."
 msgstr ""
 
+#: src/Server.php:95
+msgid "The rule is in .htaccess, but the server ignores it: .htaccess files need AllowOverride FileInfo, or a CDN in front of the site sends its own type."
+msgstr ""
+
+#: src/Server.php:97
+msgid "Add these lines to the .htaccess file in the site root (it is not writable, so Timber AVIF could not):"
+msgstr ""
+
+#: src/Server.php:99
+msgid "Add this line to the server's mime.types file (on nginx, inside the types block), then reload it:"
+msgstr ""
+
 #. translators: 1: PHP SAPI name, 2: image format
 #: src/Worker.php:148
 #, php-format
@@ -405,23 +423,23 @@ msgstr ""
 msgid "Source file not found"
 msgstr ""
 
-#: src/Worker.php:509
-#: src/Worker.php:545
+#: src/Worker.php:541
+#: src/Worker.php:578
 msgid "Could not move the converted file into place"
 msgstr ""
 
-#: src/Worker.php:531
+#: src/Worker.php:564
 msgid "Output file invalid (corrupt header)"
 msgstr ""
 
 #. translators: 1: number of sizes, 2: error message
-#: src/Worker.php:574
+#: src/Worker.php:607
 #, php-format
 msgid "%1$d size failed: %2$s"
 msgid_plural "%1$d sizes failed: %2$s"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/Worker.php:577
+#: src/Worker.php:610
 msgid "Left as it is: the image exceeds the conversion limits (Settings → Limits)."
 msgstr ""

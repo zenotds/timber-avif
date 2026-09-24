@@ -144,12 +144,48 @@ final class Index {
 	}
 
 	/**
+	 * Other attachments of the same file. WPML and Polylang give each language an attachment
+	 * of its own — its own ID, metadata and index — pointing at one file on disk, so the
+	 * copies made from it are one set of files too.
+	 *
+	 * @return int[]
+	 */
+	public static function twins(int $id): array {
+		global $wpdb;
+		$file = (string) get_post_meta($id, '_wp_attached_file', true);
+		if ($file === '') return [];
+		return array_map('intval', $wpdb->get_col($wpdb->prepare(
+			"SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_wp_attached_file' AND meta_value = %s AND post_id <> %d",
+			$file,
+			$id
+		)));
+	}
+
+	/**
+	 * Names the twins' indexes own: a file another language still serves is not this
+	 * attachment's to delete.
+	 *
+	 * @return string[]
+	 */
+	public static function shared_names(int $id): array {
+		$names = [];
+		foreach (self::twins($id) as $twin) $names = array_merge($names, self::owned_names(self::get($twin)));
+		return array_values(array_unique($names));
+	}
+
+	/**
 	 * `delete_attachment`. WordPress removes the sub-sizes it knows about and Timber the
 	 * resizes it made; nothing removed v6's copies, which stayed on disk forever.
+	 *
+	 * Except the files a twin still serves. Deleting one language of an image in WPML keeps
+	 * the JPEGs for the others; its copies went, and pages in those languages pointed at
+	 * them — a browser does not fall back from a <source> that fails.
 	 */
 	public static function delete_files(int $id): int {
 		$deleted = 0;
+		$shared = array_flip(self::shared_names($id));
 		foreach (self::files($id, self::get($id)) as $path) {
+			if (isset($shared[basename($path)])) continue;
 			if (is_file($path) && @unlink($path)) $deleted++;
 		}
 		return $deleted;

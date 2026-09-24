@@ -1,4 +1,4 @@
-# Timber AVIF (v7.0.1)
+# Timber AVIF (v7.0.2)
 
 Responsive images for Timber 2.x. Generates AVIF (or WebP) copies of every image in the media library **in the background**, and builds a `<picture>` whose markup depends only on what has been recorded — never on what a page render managed to convert.
 
@@ -141,6 +141,25 @@ Deleting files goes the other way round: a browser does not fall back from a `<s
 
 An import or a sync that writes a new picture over an attachment's file keeps its name and URL. Timber AVIF records the file every copy was made from — name, size, a hash of its first 256 KB — and when the metadata is saved again with a different file, it stops serving the old copies at once (the new JPEG is served meanwhile) and the worker makes them again, crops included. Nothing needs calling: saving the metadata, as `wp_update_attachment_metadata()` does, is enough.
 
+### Languages sharing a file
+
+WPML and Polylang give each language an attachment of its own, pointing at one file on disk. The copies made from it are shared too: the second language takes over what the first one encoded instead of encoding the same files again, and deleting one language keeps the copies another still serves. They go with the last one.
+
+### The server's content type
+
+Copies are named after the file they stand in for, `photo.jpg.avif`. Apache reads every extension of a name, and where its `mime.types` has no entry for `.avif` — MAMP's, an older host's — it sends the AVIF as `image/jpeg`. Browsers look at the bytes and show it anyway; developer tools, PageSpeed and CDNs go by the header. On Apache and LiteSpeed, Timber AVIF keeps the fix in the site's `.htaccess`, in a block of its own that it checks every hour and removes on theme switch:
+
+```apache
+# BEGIN Timber AVIF
+<IfModule mod_mime.c>
+	AddType image/avif .avif
+	AddType image/webp .webp
+</IfModule>
+# END Timber AVIF
+```
+
+On nginx, add `image/avif avif;` to `mime.types`. The settings page asks the server which type it sends and says so when it is wrong; `wp timber-avif status` shows it too.
+
 ## How it works
 
 1. **Upload.** WordPress builds its sub-sizes, including one per canonical width (`tavif-640`, …) below the image's own width. Nothing is converted during the upload request.
@@ -165,7 +184,7 @@ The media library gets a column with each image's state.
 ## WP-CLI
 
 ```bash
-wp timber-avif status                        # format, engine, widths, pending count
+wp timber-avif status                        # format, engine, widths, pending count, served type
 wp timber-avif work [--all]                  # convert pending images; --all until the queue is empty
 wp timber-avif rebuild                       # re-encode everything with the current settings
 wp timber-avif purge                         # delete generated files

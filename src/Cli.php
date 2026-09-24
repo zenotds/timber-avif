@@ -27,6 +27,7 @@ final class Cli {
 		\WP_CLI::log('Engine:  ' . ($format ? Engine::detect($format) : '—') . ' (' . Engine::runtime() . ')');
 		\WP_CLI::log('Widths:  ' . implode(', ', Config::widths()));
 		\WP_CLI::log('Pending: ' . Worker::count_pending());
+		if ($format) \WP_CLI::log('Served:  ' . (Server::served_type(true) ?? '— (no copy yet, or the site did not answer)'));
 	}
 
 	/**

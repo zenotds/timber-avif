@@ -355,6 +355,19 @@ final class Admin {
 		} elseif ($format === 'webp' && Config::get('format_mode') === 'auto') {
 			echo '<div class="notice notice-info"><p>' . esc_html__('This server cannot generate AVIF. Images are served as WebP or in their original format.', 'timber-avif') . '</p></div>';
 		}
+
+		Server::ensure();
+		$type = $format ? Server::served_type() : null;
+		if ($type && $type !== Engine::mime($format)) {
+			[$advice, $lines] = Server::advice();
+			echo '<div class="notice notice-warning"><p>' . esc_html(sprintf(
+				/* translators: 1: format, 2: MIME type the server sends, 3: the right one */
+				__('The server sends %1$s files as %2$s instead of %3$s. Browsers show them anyway, but developer tools, PageSpeed and CDNs take them for what the header says.', 'timber-avif'),
+				strtoupper($format),
+				$type,
+				Engine::mime($format)
+			)) . '</p><p>' . esc_html($advice) . '</p>' . ($lines ? '<pre><code>' . esc_html($lines) . '</code></pre>' : '') . '</div>';
+		}
 	}
 
 	/* ─────────────────────────────────────────────

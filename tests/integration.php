@@ -14,6 +14,7 @@ use TimberAVIF\Engine;
 use TimberAVIF\Index;
 use TimberAVIF\Lock;
 use TimberAVIF\Renderer;
+use TimberAVIF\Server;
 use TimberAVIF\Tools;
 use TimberAVIF\Worker;
 use TimberAVIF\Cache;
@@ -463,6 +464,51 @@ try {
 	@unlink("$dir/photo-640x0-c-default.jpg");
 	check('v7 files untouched', count(glob("$dir/*.jpg.avif")) === $v7);
 	check('once they are gone, so is the tool', !get_option(Plugin::V6_LEFTOVERS));
+
+	section('Translations of one file (WPML, Polylang)');
+	$it_id = upload(solid("$work/translated.jpg", 1800, 1200, 'red'));
+	Renderer::sources($it_id, ['ratio' => '1/1']);
+	drain();
+	// What WPML makes for a translation: a second attachment with the same file and metadata.
+	$en_id = wp_insert_attachment(['post_title' => 'translated (en)', 'post_mime_type' => 'image/jpeg', 'post_status' => 'inherit'], get_attached_file($it_id));
+	$GLOBALS['tavif_it']['uploaded'][] = $en_id;
+	update_post_meta($en_id, '_wp_attachment_metadata', wp_get_attachment_metadata($it_id));
+	check('the two share the file', get_attached_file($en_id) === get_attached_file($it_id) && Index::twins($en_id) === [$it_id]);
+	Renderer::sources($en_id, ['ratio' => '1/1']);
+	$shared_files = Index::files($it_id, Index::get($it_id));
+	$inodes = array_map('fileinode', $shared_files);
+	drain();
+	clearstatcache();
+	check('the translation is served in AVIF, crop included', Renderer::sources($en_id)['modern'] && Renderer::sources($en_id, ['ratio' => '1/1'])['modern']);
+	check('from the copies the other language made: nothing encoded twice', $inodes === array_map('fileinode', $shared_files));
+	// WPML keeps the JPEGs another language still uses; this stands in for its wp_delete_file filter.
+	add_filter('wp_delete_file', '__return_false', PHP_INT_MAX);
+	wp_delete_attachment($en_id, true);
+	remove_filter('wp_delete_file', '__return_false', PHP_INT_MAX);
+	$GLOBALS['tavif_it']['uploaded'] = array_diff($GLOBALS['tavif_it']['uploaded'], [$en_id]);
+	clearstatcache();
+	check('deleting one language keeps the copies the other serves', count(array_filter($shared_files, 'file_exists')) === count($shared_files), count(array_filter($shared_files, 'file_exists')) . ' of ' . count($shared_files));
+	wp_delete_attachment($it_id, true);
+	$GLOBALS['tavif_it']['uploaded'] = array_diff($GLOBALS['tavif_it']['uploaded'], [$it_id]);
+	check('deleting the last one deletes them', !array_filter($shared_files, 'file_exists'));
+
+	section('Server type');
+	$htaccess = get_home_path() . '.htaccess';
+	$had = is_file($htaccess) ? file_get_contents($htaccess) : null;
+	file_put_contents($htaccess, "# BEGIN WordPress\nRewriteEngine On\n# END WordPress\n");
+	$was_apache = $GLOBALS['is_apache'] ?? false;
+	$GLOBALS['is_apache'] = true;
+	check('on Apache the type of .avif goes in .htaccess', Server::ensure() && str_contains(file_get_contents($htaccess), 'AddType image/avif .avif'));
+	$written = file_get_contents($htaccess);
+	Server::ensure();
+	check('once, next to what was there', file_get_contents($htaccess) === $written && str_contains($written, "# BEGIN WordPress\nRewriteEngine On"));
+	Server::remove();
+	check('removed with the theme', !str_contains(file_get_contents($htaccess), 'AddType'));
+	$GLOBALS['is_apache'] = false;
+	file_put_contents($htaccess, "# BEGIN WordPress\n# END WordPress\n");
+	check('on other servers nothing is written', !Server::ensure() && !str_contains(file_get_contents($htaccess), 'AddType'));
+	$GLOBALS['is_apache'] = $was_apache;
+	$had === null ? unlink($htaccess) : file_put_contents($htaccess, $had);
 
 	section('Deletion');
 	drain();
