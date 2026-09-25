@@ -11,9 +11,12 @@
 		input.addEventListener('input', function () { if (out) out.textContent = input.value; });
 	});
 
+	// A response that is not JSON — a PHP fatal error, a server timeout — rejects with its HTTP status.
 	function post(action, extra) {
 		var body = new URLSearchParams(Object.assign({ action: action, nonce: cfg.nonce }, extra || {}));
-		return fetch(cfg.ajax, { method: 'POST', credentials: 'same-origin', body: body }).then(function (r) { return r.json(); });
+		return fetch(cfg.ajax, { method: 'POST', credentials: 'same-origin', body: body }).then(function (r) {
+			return r.json().catch(function () { throw new Error('HTTP ' + r.status); });
+		});
 	}
 
 	var button = document.getElementById('tavif-work');
@@ -71,7 +74,10 @@
 					}
 					step(next);
 				})
-				.catch(function () { oStatus.textContent = t.failed; });
+				.catch(function (e) {
+					oStatus.textContent = t.failed + ' ' + e.message;
+					optimize.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+				});
 		};
 
 		optimize.querySelectorAll('[data-tavif-optimize]').forEach(function (b) {

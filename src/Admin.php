@@ -283,7 +283,6 @@ final class Admin {
 					<p class="description tavif-progress-status"></p>
 				</div>
 			</div>
-			<?php self::render_optimize(); ?>
 			<?php foreach ($tools as $key => [$title, $text, $button, $confirm]) : ?>
 				<div class="tavif-tool-card">
 					<h3><?php echo esc_html($title); ?></h3>
@@ -296,6 +295,8 @@ final class Admin {
 					</form>
 				</div>
 			<?php endforeach; ?>
+			<?php // Full width, and last: in the grid above, it would leave a card alone on its row. ?>
+			<?php self::render_optimize(); ?>
 		</div>
 		<?php
 	}
@@ -387,7 +388,7 @@ final class Admin {
 				<?php if (!empty($job['unmatched'])) : arsort($job['unmatched']); ?>
 					<p><?php esc_html_e('Fields holding images that no template call was traced to:', 'timber-avif'); ?></p>
 					<ul class="tavif-code-list">
-						<?php foreach (array_slice($job['unmatched'], 0, 15, true) as $place => $n) : ?><li><code><?php echo esc_html($place); ?></code> (<?php echo esc_html(number_format_i18n($n)); ?>)</li><?php endforeach; ?>
+						<?php foreach (array_slice($job['unmatched'], 0, 15, true) as $place => $n) : ?><li><code><?php echo esc_html(explode(Optimize\Usage::ALTERNATIVE, $place)[0]); ?></code> (<?php echo esc_html(number_format_i18n($n)); ?>)</li><?php endforeach; ?>
 					</ul>
 				<?php endif; ?>
 				<?php if (!empty($job['untraced'])) : ?>
@@ -624,8 +625,15 @@ final class Admin {
 		if (!current_user_can('manage_options')) wp_send_json_error(__('Insufficient permissions', 'timber-avif'), 403);
 
 		$step = sanitize_key($_POST['step'] ?? '');
-		if ($step === 'start') Optimize::start(!empty($_POST['timber']));
-		$job = $step === 'apply' ? Optimize::apply(Worker::ADMIN_BUDGET) : Optimize::analyse(Worker::ADMIN_BUDGET);
+		try {
+			if ($step === 'start') Optimize::start(!empty($_POST['timber']));
+			$job = $step === 'apply' ? Optimize::apply(Worker::ADMIN_BUDGET) : Optimize::analyse(Worker::ADMIN_BUDGET);
+		} catch (\Throwable $e) {
+			// Said on the page, rather than a response the browser cannot read.
+			error_log('[TimberAVIF] Optimize: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+			/* translators: %s: error message */
+			wp_send_json_error(sprintf(__('Optimize stopped: %s', 'timber-avif'), $e->getMessage() . ' (' . wp_basename($e->getFile()) . ':' . $e->getLine() . ')'));
+		}
 		if (($job['error'] ?? '') === 'widths') wp_send_json_error(__('Settings → Widths changed since the analysis: discard the report and run it again.', 'timber-avif'));
 		delete_transient(self::STATS);
 

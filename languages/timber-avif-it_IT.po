@@ -1,8 +1,8 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: Timber AVIF 7.1.0\n"
+"Project-Id-Version: Timber AVIF 7.1.1\n"
 "Report-Msgid-Bugs-To: https://github.com/zenotds/timber-avif/issues\n"
-"POT-Creation-Date: 2026-09-25T11:50:37+00:00\n"
+"POT-Creation-Date: 2026-09-25T13:42:30+00:00\n"
 "PO-Revision-Date: 2026-09-25\n"
 "Language: it_IT\n"
 "MIME-Version: 1.0\n"
@@ -83,7 +83,7 @@ msgstr ""
 msgid "Served format"
 msgstr "Formato servito"
 
-#: src/Admin.php:141 src/Admin.php:693
+#: src/Admin.php:141 src/Admin.php:700
 msgid "Original"
 msgstr "Originale"
 
@@ -573,11 +573,17 @@ msgstr ""
 "trattano per quello che dice l'intestazione."
 
 #: src/Admin.php:529 src/Admin.php:550 src/Admin.php:609 src/Admin.php:624
-#: src/Admin.php:642
+#: src/Admin.php:649
 msgid "Insufficient permissions"
 msgstr "Permessi insufficienti"
 
-#: src/Admin.php:629
+#. translators: %s: error message
+#: src/Admin.php:634
+#, php-format
+msgid "Optimize stopped: %s"
+msgstr "Optimize si è fermato: %s"
+
+#: src/Admin.php:636
 msgid ""
 "Settings → Widths changed since the analysis: discard the report and run it "
 "again."
@@ -585,30 +591,30 @@ msgstr ""
 "Impostazioni → Larghezze è cambiato dopo l'analisi: scarta il resoconto e "
 "rifalla."
 
-#: src/Admin.php:676
+#: src/Admin.php:683
 msgid "Animated"
 msgstr "Animata"
 
-#: src/Admin.php:686
+#: src/Admin.php:693
 msgid "Pending"
 msgstr "In attesa"
 
-#: src/Admin.php:688
+#: src/Admin.php:695
 msgid "Issue"
 msgstr "Problema"
 
-#: src/Admin.php:690
+#: src/Admin.php:697
 #, php-format
 msgid "%d size kept as original: the conversion weighed more"
 msgid_plural "%d sizes kept as original: the conversion weighed more"
 msgstr[0] "%d misura lasciata originale: la conversione pesava di più"
 msgstr[1] "%d misure lasciate originali: la conversione pesava di più"
 
-#: src/Admin.php:693
+#: src/Admin.php:700
 msgid "Every conversion weighed more than the original"
 msgstr "Ogni conversione pesava più dell'originale"
 
-#: src/Admin.php:751
+#: src/Admin.php:758
 msgid "Not available"
 msgstr "Non disponibile"
 

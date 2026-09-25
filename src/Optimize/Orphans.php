@@ -46,12 +46,12 @@ final class Orphans {
 		$names = @scandir($dir) ?: [];
 		if (!$names) return $out;
 		$present = array_flip($names);
-		[$protected, $owned] = self::known($dir);
+		$known = self::known($dir);
 		$foreign = self::foreign_converter();
 
 		foreach ($names as $name) {
-			if ($name[0] === '.' || isset($protected[$name]) || isset($owned[$name])) continue;
-			$kind = self::kind($name, $present, $foreign);
+			if ($name[0] === '.' || isset($known['files'][$name]) || isset($known['owned'][$name])) continue;
+			$kind = self::kind($name, $present, $foreign, $known);
 			if ($kind === null) continue;
 			$path = "$dir/$name";
 			if (!is_file($path)) continue;
@@ -66,32 +66,73 @@ final class Orphans {
 		return false;
 	}
 
-	/** 'orphans', 'timber', or null for a file that is not ours to judge. */
-	private static function kind(string $name, array $present, bool $foreign): ?string {
+	/**
+	 * 'orphans', 'timber', or null for a file that is not ours to judge.
+	 *
+	 * A copy counts only when the attachment it was made for is known and done with — its
+	 * index, final, no longer lists it — or when what it was made from is gone. One made
+	 * from a file no attachment here owns is left: the database may be behind the folder (a
+	 * copy restored from elsewhere, an import not run yet), and with the database it belongs
+	 * to, that copy is served.
+	 */
+	private static function kind(string $name, array $present, bool $foreign, array $known): ?string {
 		if (preg_match('/\.(avif|webp)\.lock$/i', $name)) return 'orphans';
 		if (preg_match('/\.tavif-[A-Za-z0-9]{6}\.(avif|webp|jpe?g|png|gif)$/i', $name)) return 'orphans';
+
+		// photo-640x427.jpg.avif: a modern copy of ours.
 		if (preg_match('/^(.+\.(jpe?g|png|gif|webp))\.(avif|webp)$/i', $name, $m)) {
-			return ($foreign && isset($present[$m[1]])) ? null : 'orphans';
+			$source = $m[1];
+			if (preg_match('/^(.+)-\d+x\d+-tavif\.[a-z]+$/i', $source, $c)) return self::judge($c[1], $known, $present, 'orphans');
+			if (!isset($present[$source])) return 'orphans';
+			if ($foreign) return null;
+			return self::judge(pathinfo($source, PATHINFO_FILENAME), $known, $present, 'orphans', $source);
 		}
-		if (preg_match('/-\d+x\d+-tavif\.(jpe?g|png|gif|webp)$/i', $name)) return 'orphans';
-		if (preg_match('/-\d+x\d+-c-[a-z]+\.(jpe?g|png|gif|webp|avif)$/i', $name, $m)) {
-			return ($foreign && in_array(strtolower($m[1]), ['avif', 'webp'], true)) ? null : 'timber';
+		// photo-scaled-640x160-tavif.jpg: a crop or a width of ours.
+		if (preg_match('/^(.+)-\d+x\d+-tavif\.(jpe?g|png|gif|webp)$/i', $name, $m)) return self::judge($m[1], $known, $present, 'orphans');
+		// photo-640x0-c-default.jpg: Timber's resize, or the older version's copy of one.
+		if (preg_match('/^(.+)-\d+x\d+-c-[a-z]+\.(jpe?g|png|gif|webp|avif)$/i', $name, $m)) {
+			if ($foreign && in_array(strtolower($m[2]), ['avif', 'webp'], true)) return null;
+			return self::judge($m[1], $known, $present, 'timber');
 		}
+		// photo.webp next to photo.jpg: Timber's |towebp, or the older version's copy.
 		if (!$foreign && preg_match('/^(.+)\.(avif|webp)$/i', $name, $m)) {
 			$sources = strtolower($m[2]) === 'avif' ? ['jpg', 'jpeg', 'png', 'gif', 'webp'] : ['jpg', 'jpeg', 'png', 'gif'];
 			foreach ($sources as $ext) {
-				if (isset($present["{$m[1]}.$ext"]) || isset($present[$m[1] . '.' . strtoupper($ext)])) return 'timber';
+				foreach (["{$m[1]}.$ext", $m[1] . '.' . strtoupper($ext)] as $source) {
+					if (isset($present[$source])) return self::judge($m[1], $known, $present, 'timber', $source);
+				}
 			}
 		}
 		return null;
 	}
 
 	/**
-	 * The names in $dir that attachments own — the attached file, the original behind a
-	 * `-scaled` one, the sub-sizes, the sizes an edit keeps for undo — and those the indexes
-	 * of those attachments list.
+	 * A file made from $stem (a file name without its extension), or from $source exactly:
+	 * $kind if the attachment that owns it is known here and finished, or if nothing in the
+	 * folder bears that name any more; null if it is someone else's, or not settled yet.
+	 */
+	private static function judge(string $stem, array $known, array $present, string $kind, ?string $source = null): ?string {
+		$owners = $source !== null ? ($known['files'][$source] ?? null) : ($known['stems'][$stem] ?? null);
+		if ($owners) {
+			// Pending: the next pass may claim it, or make it again.
+			foreach ($owners as $id) if (!empty($known['pending'][$id])) return null;
+			return $kind;
+		}
+		// No attachment owns it. Gone from the folder too: an orphan. Still there: not ours.
+		if ($source !== null) return null;
+		foreach (array_keys($present) as $other) {
+			if (str_starts_with((string) $other, $stem . '.')) return null;
+		}
+		return $kind;
+	}
+
+	/**
+	 * What attachments own in $dir — the attached file, the original behind a `-scaled` one,
+	 * the sub-sizes, the sizes an edit keeps for undo — with the attachments owning each
+	 * name; the names their indexes list; each attachment's file names without extension,
+	 * which its crops start with; and which attachments are still pending.
 	 *
-	 * @return array{0: array<string, true>, 1: array<string, true>}
+	 * @return array{files: array<string, int[]>, owned: array<string, true>, stems: array<string, int[]>, pending: array<int, bool>}
 	 */
 	private static function known(string $dir): array {
 		global $wpdb;
@@ -101,33 +142,42 @@ final class Orphans {
 		$like = $rel === '' ? '%' : $wpdb->esc_like($rel . '/') . '%';
 
 		$rows = $wpdb->get_results($wpdb->prepare(
-			"SELECT a.post_id, a.meta_value AS file, m.meta_value AS meta, b.meta_value AS backup, i.meta_value AS idx
+			"SELECT a.post_id, a.meta_value AS file, m.meta_value AS meta, b.meta_value AS backup, i.meta_value AS idx, s.meta_value AS stamp
 			FROM {$wpdb->postmeta} a
 			LEFT JOIN {$wpdb->postmeta} m ON m.post_id = a.post_id AND m.meta_key = '_wp_attachment_metadata'
 			LEFT JOIN {$wpdb->postmeta} b ON b.post_id = a.post_id AND b.meta_key = '_wp_attachment_backup_sizes'
 			LEFT JOIN {$wpdb->postmeta} i ON i.post_id = a.post_id AND i.meta_key = %s
+			LEFT JOIN {$wpdb->postmeta} s ON s.post_id = a.post_id AND s.meta_key = %s
 			WHERE a.meta_key = '_wp_attached_file' AND a.meta_value LIKE %s",
 			Index::META,
+			Index::STAMP,
 			$like
 		));
 
-		$protected = [];
-		$owned = [];
+		$known = ['files' => [], 'owned' => [], 'stems' => [], 'pending' => []];
+		$fingerprint = \TimberAVIF\Config::fingerprint();
 		foreach ($rows as $row) {
 			$file = (string) $row->file;
 			if (dirname($file) !== ($rel === '' ? '.' : $rel)) continue;
-			$protected[wp_basename($file)] = true;
+			$id = (int) $row->post_id;
+			$known['pending'][$id] = (string) $row->stamp !== $fingerprint;
+			$names = [wp_basename($file)];
 			$meta = maybe_unserialize((string) $row->meta);
 			if (is_array($meta)) {
-				if (!empty($meta['original_image'])) $protected[(string) $meta['original_image']] = true;
-				foreach ((array) ($meta['sizes'] ?? []) as $size) if (!empty($size['file'])) $protected[(string) $size['file']] = true;
+				if (!empty($meta['file'])) $names[] = wp_basename((string) $meta['file']);
+				if (!empty($meta['original_image'])) $names[] = (string) $meta['original_image'];
+				foreach ((array) ($meta['sizes'] ?? []) as $size) if (!empty($size['file'])) $names[] = (string) $size['file'];
 			}
 			foreach ((array) maybe_unserialize((string) $row->backup) as $size) {
-				if (is_array($size) && !empty($size['file'])) $protected[(string) $size['file']] = true;
+				if (is_array($size) && !empty($size['file'])) $names[] = (string) $size['file'];
+			}
+			foreach (array_unique($names) as $name) {
+				$known['files'][$name][] = $id;
+				$known['stems'][pathinfo($name, PATHINFO_FILENAME)][] = $id;
 			}
 			$index = maybe_unserialize((string) $row->idx);
-			if (is_array($index)) foreach (Index::owned_names($index) as $name) $owned[$name] = true;
+			if (is_array($index)) foreach (Index::owned_names($index) as $name) $known['owned'][$name] = true;
 		}
-		return [$protected, $owned];
+		return $known;
 	}
 }

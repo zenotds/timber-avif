@@ -1,4 +1,4 @@
-# Timber AVIF (v7.1.0)
+# Timber AVIF (v7.1.1)
 
 Responsive images for Timber 2.x. Generates AVIF (or WebP) copies of every image in the media library **in the background**, and builds a `<picture>` whose markup depends only on what has been recorded — never on what a page render managed to convert.
 
@@ -172,7 +172,7 @@ The worker is protected against the cases that stall a queue: an image slower th
 
 Every configured width of every image is made at upload and by the worker, whatever the image is used for: a photo in a card gets the same files as a hero. Optimize, under Tools, removes afterwards what no template shows.
 
-1. **Where each image is placed**, from the database: featured images, ACF fields — the field key ACF stores next to each value gives the field's type and its place in repeaters, groups and flexible content layouts — term fields, options pages, post content.
+1. **Where each image is placed**, from the database: featured images, ACF fields, term fields, options pages, post content. The field key ACF stores next to each value gives the field's type; the rows it sits in — repeaters, flexible content layouts, clones of other field groups included — come from the value's own meta key, read against the object's other meta. Values ACF left behind when a row was removed are not a use.
 2. **How the templates show those places**, from the theme's Twig, read without rendering: every call to a macro named `image`, to `image_sources()` and to `|best_src`, followed through `set`, `for`, `include … with`, the theme's own macros and their arguments. `{% include "block-" ~ row.acf_fc_layout ~ ".twig" %}` ties each block template to its ACF layout. A `sizes` built by a condition counts as its widest branch.
 3. **The widest need** of each image: its `sizes` evaluated as a browser does over viewports from 320 to 2560 px, at 2x, capped by `max`, rounded up to a configured width, and never below 1024.
 
@@ -180,7 +180,7 @@ Past that width the image's modern copies, its `tavif-*` JPEGs, its crops and th
 
 An image keeps every file when it is referenced somewhere this reading cannot place (another plugin's meta, an SEO image, the site icon), in post content, in a field no template call leads to, or shown at full width. One that nothing references keeps 1024 px and below. Never deleted: originals, `-scaled` files and WordPress's own sizes, which other sites, newsletters and `og:image` may link.
 
-Files no attachment owns go too, when they carry a name only this package or an interrupted encode write: `photo-640x427.jpg.avif` of a deleted image, `.tavif-XXXXXX.avif`, an older version's `.avif.lock`. What Timber writes next to the originals — resizes (`photo-640x0-c-default.jpg`), conversions (`photo.webp`), which are also the names an older version gave its copies — only when asked: Timber makes again any a template still asks for, on the first view of that page. Where another plugin writes its own WebP or AVIF copies (EWWW, ShortPixel, Imagify, Smush, WebP Express, Converter for Media, LiteSpeed), a copy counts only once its original is gone.
+Files no attachment owns go too, when they carry a name only this package or an interrupted encode write: `photo-640x427.jpg.avif` of a deleted image, a crop an image's finished index no longer lists, `.tavif-XXXXXX.avif`, an older version's `.avif.lock`. A copy of a file that no attachment in the database owns stays, and so does one of an image still in the queue: the database may be behind the folder (an import not run yet, uploads restored from elsewhere), and with the database it belongs to, that copy is served. What Timber writes next to the originals — resizes (`photo-640x0-c-default.jpg`), conversions (`photo.webp`), which are also the names an older version gave its copies — only when asked: Timber makes again any a template still asks for, on the first view of that page. Where another plugin writes its own WebP or AVIF copies (EWWW, ShortPixel, Imagify, Smush, WebP Express, Converter for Media, LiteSpeed), a copy counts only once its original is gone.
 
 Optimize trusts `sizes`. A card that says `300px` but is laid out 700 px wide on a tablet gets, after Optimize, no more than 300 px at 2x needs, including from browsers that measure it themselves (`sizes="auto"`). The theme's macros already ask for an accurate `sizes`; Optimize makes it matter more.
 

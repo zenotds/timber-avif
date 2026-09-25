@@ -307,7 +307,7 @@ final class Optimize {
 			arsort($job['unmatched']);
 			$lines[] = '';
 			$lines[] = 'Fields holding images that no template call was traced to (they keep every file):';
-			foreach (array_slice($job['unmatched'], 0, 12, true) as $place => $n) $lines[] = sprintf('  %6d  %s', $n, $place);
+			foreach (array_slice($job['unmatched'], 0, 12, true) as $place => $n) $lines[] = sprintf('  %6d  %s', $n, explode(Usage::ALTERNATIVE, $place)[0]);
 		}
 		if (!empty($job['untraced'])) {
 			$lines[] = '';
@@ -362,7 +362,13 @@ final class Optimize {
 	private static function match_places(array $job): array {
 		$uses = $job['uses'] ?? [];
 		$places = [];
-		foreach ($job['refs'] as $ref) foreach (array_keys($ref['p'] ?? []) as $place) $places[$place] = true;
+		$names = [];
+		foreach ($job['refs'] as $ref) {
+			foreach (array_keys($ref['p'] ?? []) as $place) {
+				$places[$place] = true;
+				foreach (explode(Usage::ALTERNATIVE, $place) as $name) $names[$name] = true;
+			}
+		}
 
 		$exact = [];
 		$any = [];
@@ -371,7 +377,7 @@ final class Optimize {
 			if ($u['scope'] === 'any') $any[$u['path']][] = $i;
 		}
 		foreach ($uses as $i => $u) {
-			if (!str_contains($u['path'], '*') || isset($places[$u['scope'] . '|' . $u['path']])) continue;
+			if (!str_contains($u['path'], '*') || isset($names[$u['scope'] . '|' . $u['path']])) continue;
 			$tail = substr($u['path'], strrpos($u['path'], '*') + 1);
 			$tail = ltrim($tail, '.');
 			if ($tail !== '') $any[$tail][] = $i;
@@ -379,9 +385,12 @@ final class Optimize {
 
 		$matches = [];
 		foreach (array_keys($places) as $place) {
-			[$scope, $path] = explode('|', $place, 2);
-			$found = $exact[$place] ?? [];
-			if ($scope === 'post' || $scope === 'term') $found = array_merge($found, $any[$path] ?? []);
+			$found = [];
+			foreach (explode(Usage::ALTERNATIVE, $place) as $name) {
+				[$scope, $path] = explode('|', $name, 2);
+				$found = array_merge($found, $exact[$name] ?? []);
+				if ($scope === 'post' || $scope === 'term') $found = array_merge($found, $any[$path] ?? []);
+			}
 			$matches[$place] = array_values(array_unique($found));
 		}
 		return $matches;

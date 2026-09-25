@@ -453,7 +453,8 @@ try {
 
 	Worker::run(-1, true);
 	check('a pass that converted nothing starts no other', !$loopbacks);
-	Worker::run(0.01, true);
+	// Long enough to start on an image whatever the load, short of finishing both.
+	Worker::run(0.3, true);
 	$sent = $loopbacks[0] ?? null;
 	check('a pass that leaves work pending starts the next one: a loopback, not waited for', $sent && str_ends_with($sent['url'], '/wp-admin/admin-ajax.php') && $sent['args']['blocking'] === false, wp_json_encode($sent['args'] ?? null));
 	$token = (string) ($sent['args']['body']['token'] ?? '');
@@ -546,6 +547,7 @@ try {
 			'blocks/block-cards.twig' => "{% import 'macros.twig' as macros %}{% for card in content.cards %}{% set cover = card.cover ? get_image(card.cover) : null %}{{ macros.image(cover, { sizes: (loop.length > 2 ? '(min-width: 64rem) 300px' : '(min-width: 64rem) 700px') ~ ', (min-width: 40rem) 50vw, calc(100vw - 2rem)' }) }}{% endfor %}",
 			'blocks/block-hero.twig' => "{% import 'macros.twig' as macros %}{{ macros.image(get_image(content.image), { sizes: '100vw', atf: true }) }}",
 			'blocks/block-logos.twig' => "{% import 'macros.twig' as macros %}{% for logo in content.logos %}{{ macros.image(logo, { sizes: '120px', max: 240 }) }}{% endfor %}",
+			'blocks/block-media.twig' => "{% import 'macros.twig' as macros %}{% for m in content.media %}{% if m.acf_fc_layout == 'immagine' %}{{ macros.image(get_image(m.image), { sizes: '(min-width: 40rem) 500px, 60vw' }) }}{% endif %}{% endfor %}",
 			'footer.twig' => "{% import 'macros.twig' as macros %}{{ macros.image(get_image(options.logo), { sizes: '200px' }) }}",
 			'archive.twig' => "{% import 'macros.twig' as macros %}{% for post in posts %}{{ macros.image(post.thumbnail, { sizes: '400px' }) }}{% endfor %}",
 		];
@@ -566,8 +568,15 @@ try {
 				]],
 				'l_hero' => ['key' => 'l_hero', 'name' => 'hero', 'sub_fields' => [['key' => 'field_tavif_hero_image', 'name' => 'image', 'type' => 'image']]],
 				'l_logos' => ['key' => 'l_logos', 'name' => 'logos', 'sub_fields' => [['key' => 'field_tavif_logos', 'name' => 'logos', 'type' => 'gallery']]],
+				// A module kept as a field group of its own, cloned in: as Mobilissimo's media block is.
+				'l_media' => ['key' => 'l_media', 'name' => 'media', 'sub_fields' => [['key' => 'field_tavif_media_clone', 'name' => 'media_clone', 'type' => 'clone', 'clone' => ['group_tavif_module'], 'display' => 'seamless', 'prefix_name' => 0]]],
 			]],
 			['key' => 'field_tavif_secret', 'name' => 'secret', 'type' => 'image'],
+		]]);
+		acf_add_local_field_group(['key' => 'group_tavif_module', 'title' => 'tavif module', 'location' => [[['param' => 'post_type', 'operator' => '==', 'value' => 'tavif_none']]], 'fields' => [
+			['key' => 'field_tavif_module_media', 'name' => 'media', 'type' => 'flexible_content', 'layouts' => [
+				'l_immagine' => ['key' => 'l_immagine', 'name' => 'immagine', 'sub_fields' => [['key' => 'field_tavif_module_image', 'name' => 'image', 'type' => 'image']]],
+			]],
 		]]);
 		acf_add_local_field_group(['key' => 'group_tavif_options', 'title' => 'tavif options', 'location' => [[['param' => 'options_page', 'operator' => '==', 'value' => 'tavif']]], 'fields' => [
 			['key' => 'field_tavif_logo', 'name' => 'logo', 'type' => 'image'],
@@ -593,13 +602,36 @@ try {
 		$blog = wp_insert_post(['post_title' => 'tavif post', 'post_status' => 'publish']);
 		set_post_thumbnail($blog, $opt['featured']);
 		update_post_meta($blog, 'some_plugin_image', (string) $opt['plugin']);
+
+		foreach (['cloned', 'stale', 'wpml'] as $name) $opt[$name] = upload(solid("$work/opt-$name.jpg", 1600, 1067, 'olive'));
+		// What ACF writes for a row of the cloned module: the flexible under the clone's
+		// composite key, its image under the cloned group's own key.
+		update_post_meta($page, 'content', array_merge((array) get_post_meta($page, 'content', true), ['media']));
+		update_post_meta($page, 'content_3_media', ['immagine']);
+		update_post_meta($page, '_content_3_media', 'field_tavif_media_clone_field_tavif_module_media');
+		update_post_meta($page, 'content_3_media_0_image', (string) $opt['cloned']);
+		update_post_meta($page, '_content_3_media_0_image', 'field_tavif_module_image');
+		// What ACF leaves behind when a row is removed: its values, past the rows `content` lists.
+		update_post_meta($page, 'content_7_cards', '1');
+		update_post_meta($page, '_content_7_cards', 'field_tavif_cards');
+		update_post_meta($page, 'content_7_cards_0_cover', (string) $opt['stale']);
+		update_post_meta($page, '_content_7_cards_0_cover', 'field_tavif_card_cover');
+		// WPML's list of the media a post cites, and a plain string where SEO options are arrays.
+		update_post_meta($blog, 'referenced_media_ids', [$opt['wpml']]);
+		update_option('wpseo_tavif_hash', 'd33b7518e4031', false);
 		drain();
 
 		$card = $opt['card'];
 		$dir = dir_of($card);
 		// What an older version, a crash and Timber leave next to the files.
-		$orphans = ["$dir/opt-card-640x427.avif.lock", "$dir/gone-640x427.jpg.avif", "$dir/opt-card-640x427.jpg.tavif-Ab12Cd.avif"];
+		$orphans = ["$dir/opt-card-640x427.avif.lock", "$dir/gone-640x427.jpg.avif", "$dir/opt-card-640x427.jpg.tavif-Ab12Cd.avif", "$dir/opt-card-scaled-640x160-tavif.jpg"];
 		foreach ($orphans as $path) file_put_contents($path, 'x');
+		// Not ours to judge: a copy of a file no attachment owns (the database may be behind
+		// the folder), and a crop of an image still pending, which its next pass may claim.
+		copy("$dir/opt-card-640x427.jpg", $stranger = "$dir/stranger.jpg");
+		file_put_contents($stranger_copy = "$dir/stranger.jpg.avif", 'x');
+		file_put_contents($pending_crop = "$dir/opt-plugin-scaled-640x160-tavif.jpg", 'x');
+		delete_post_meta($opt['plugin'], Index::STAMP);
 		copy("$dir/opt-card-640x427.jpg", $timber_resize = "$dir/opt-card-640x0-c-default.jpg");
 		// |towebp's name, and the one an older version gave its copies.
 		file_put_contents($towebp = "$dir/opt-card-640x427.webp", 'x');
@@ -617,7 +649,10 @@ try {
 		check('an image in post content keeps everything', !isset($job['plan'][$opt['content']]) && ($job['images']['kept']['content'] ?? 0) >= 1);
 		check('an image in another plugin\'s meta keeps everything', !isset($job['plan'][$opt['plugin']]) && ($job['images']['kept']['other'] ?? 0) >= 1);
 		check('an image in a field no template shows keeps everything', !isset($job['plan'][$opt['secret']]) && isset($job['unmatched']['post|secret']), wp_json_encode($job['unmatched'] ?? []));
-		check('orphans counted, what Timber made apart', $job['totals']['orphans']['files'] >= 3 && $job['totals']['timber']['files'] >= 2, wp_json_encode($job['totals']));
+		check('orphans counted, what Timber made apart', $job['totals']['orphans']['files'] >= 4 && $job['totals']['timber']['files'] >= 2, wp_json_encode($job['totals']));
+		check('a string among the SEO plugin\'s options is no trouble, and neither is WPML\'s list of cited media', $caps($opt['wpml']) === ['' => 1024], wp_json_encode($caps($opt['wpml'])));
+		check('an image in a cloned module, inside a layout, is traced to its block template', $caps($opt['cloned']) === ['' => 1024], wp_json_encode($caps($opt['cloned'])));
+		check('values of a removed row are not a use', $caps($opt['stale']) === ['' => 1024] && !array_filter(array_keys($job['unmatched']), fn($p) => str_contains($p, 'cards')), wp_json_encode($job['unmatched']));
 		check('a dry run deletes nothing', is_file("$dir/opt-card-1920x1280.jpg") && is_file("$dir/opt-card-scaled.jpg.avif") && !Index::caps($card));
 
 		$GLOBALS['tavif_rocket'] = [];
@@ -641,6 +676,8 @@ try {
 		check('served up to 1600, in AVIF, complete', $data['modern'] && str_contains($data['modern']['srcset'], ' 1600w') && !str_contains($data['modern']['srcset'], ' 1920w') && !str_contains($data['srcset'], ' 1920w') && !str_contains($data['srcset'], ' 2048w'), $data['srcset']);
 		check('and that asks for nothing', Index::needs($card) === []);
 		check('orphans deleted, what Timber made kept', !array_filter($orphans, 'file_exists') && is_file($timber_resize) && is_file($towebp));
+		check('a copy of a file no attachment owns stays, and so does a pending image\'s crop', is_file($stranger_copy) && is_file($pending_crop));
+		array_map('unlink', [$stranger, $stranger_copy, $pending_crop]);
 		check('and the page cache purged', in_array('domain', purged(), true));
 		check('the other images are untouched', is_file(dir_of($opt['hero']) . '/opt-hero-scaled.jpg.avif') && is_file(dir_of($opt['content']) . '/opt-content-1920x1280.jpg.avif'));
 		drain();
@@ -712,6 +749,17 @@ try {
 
 		@unlink($timber_resize);
 		@unlink($towebp);
+		delete_option('wpseo_tavif_hash');
+
+		// Timber::$dirname as a list, ['templates']: its folders are the main namespace.
+		$dirname = \Timber\Timber::$dirname;
+		wp_mkdir_p($listed = get_stylesheet_directory() . '/tavif-listed');
+		\Timber\Timber::$dirname = ['tavif-listed'];
+		$locations = \TimberAVIF\Optimize\Usage::locations();
+		\Timber\Timber::$dirname = $dirname;
+		@rmdir($listed);
+		check('Timber::$dirname as a list is the main namespace', in_array(realpath(get_stylesheet_directory()) . '/tavif-listed', $locations['__main__'] ?? [], true) && !isset($locations[0]), wp_json_encode(array_keys($locations)));
+
 		remove_filter('timber/locations', $location);
 		delete_field('field_tavif_logo', 'option');
 		wp_delete_post($page, true);

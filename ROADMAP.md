@@ -12,9 +12,22 @@ Planned in September 2026, after moving five sites from v6 to v7, and built as p
 
 On the templates of the five sites, the Twig reading follows every image call to the field it shows — 21 field and ratio pairs on Dalmec, 18 on Thinkwater, 26 on Mobilissimo, 21 on Saip, 23 on Dalsanto — except four calls in page headers that some templates include without passing an image (three on Dalsanto, one on Dalmec). The report lists those.
 
+### What the first analyses showed
+
+Run on the local copies of the sites, September 25th (7.1.1):
+
+| Site | Images | Limited | Used nowhere | Keep every file | To delete |
+|---|---|---|---|---|---|
+| Mobilissimo | 1,648 | 236 | 158 | 1,254 | 717 files, 116 MB |
+| Saip | 274 | 24 | 103 | 147 | 528 files, 118 MB |
+
+Most of it is images no content uses: 102 MB and 115 MB. On Mobilissimo 1,030 images are needed whole, legitimately: the product gallery is a `100vw` carousel below 1024 px and 71vw on large screens. Dalmec's local library is mostly unconverted, so it has nothing to delete yet.
+
+The same runs found what 7.1.0 missed: Yoast options that are plain strings (a fatal error), `Timber::$dirname` as a list, fields of cloned modules (the key ACF stores belongs to the cloned group), values of removed rows, WPML's `referenced_media_ids`, and copies of files the local database no longer knows.
+
 ### To find out on the real sites
 
-- **The dry run's numbers** on Mobilissimo (fully converted) and Dalmec (the largest library): space reclaimed, the share of images used nowhere, the fields the report lists as not traced.
+- **The dry run's numbers** on production, where the libraries are converted: Dalmec's above all.
 - **Loopbacks on staging.** Sites behind HTTP authentication cannot reach themselves: the Queue card says so. Production should be checked once after the deploy.
 - **Purges after a deploy that widens a `sizes`.** Each capped image shown wider is purged once its widths are built; the existing debounce covers a burst, but it is worth watching on the first redesign.
 

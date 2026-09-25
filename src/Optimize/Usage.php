@@ -13,8 +13,12 @@ use TimberAVIF\Config;
  *     term|cover  option|logo          an ACF field of a term, of the options page
  *
  * ACF writes, next to every value, the key of the field it belongs to (`_blocks_2_cover` →
- * `field_…`), so the field's type and its ancestors — repeaters, groups, the layout of a
- * flexible content — are known exactly, whatever the numbering of the rows.
+ * `field_…`), which gives the field's type. Where it sits — which rows of which repeater or
+ * flexible content, which layout — is read from the name of the value itself, against the
+ * object's other meta: `content_2_media_0_image` is row 2 of `content` (its layout is item 2
+ * of the `content` meta), then row 0 of `content_2_media`. The field key alone cannot say:
+ * inside a clone field, ACF stores the key of the cloned field, and its ancestors are those
+ * of the group it was cloned from.
  *
  * A reference that cannot be read that way is kept as "other": an ID in a field ACF does not
  * own, an SEO plugin's image, the site icon. So is an image in post content, which WordPress
@@ -24,11 +28,16 @@ use TimberAVIF\Config;
  */
 final class Usage {
 	const BATCH = 200;
+	// Between the ways of naming one place, any of which a template call can match.
+	const ALTERNATIVE = '||';
 
 	// Post types whose meta holds nothing a visitor sees.
 	const SKIP_TYPES = ['attachment', 'revision', 'nav_menu_item', 'acf-field', 'acf-field-group', 'customize_changeset', 'oembed_cache', 'user_request', 'wp_global_styles', 'custom_css'];
 	const SKIP_STATUSES = ['trash', 'auto-draft', 'inherit'];
 	// Meta whose numbers are not attachment IDs.
+	// Other plugins' lists of the media a post cites, worked out from its content and fields,
+	// which are read here themselves: WPML's media translation.
+	const INDEXES = ['referenced_media_ids'];
 	const NOT_REFERENCES = '/^_(edit_lock|edit_last|wp_old_slug|wp_old_date|wp_trash_meta_\w+|wp_desired_post_slug|wp_page_template|encloseme|pingme|menu_item_\w+|tavif\w*|yoast_wpseo_(linkdex|content_score|estimated-reading-time-minutes|wordproof_timestamp|is_cornerstone|meta-robots-\w+)|wpml_\w+|icl_\w+|last_translation_edit_mode|oembed_\w+|wp_attachment_\w+|wp_attached_file)$/';
 
 	/** @var array<string, ?array> ACF field key → how its values are read */
@@ -53,6 +62,8 @@ final class Usage {
 		$locations = [];
 		foreach ($roots as $root) {
 			foreach ((array) $dirnames as $namespace => $names) {
+				// `Timber::$dirname = ['templates']` is a list: its keys are no namespace, the main one is meant.
+				$namespace = is_int($namespace) ? '__main__' : $namespace;
 				foreach ((array) $names as $name) {
 					$dir = realpath(trailingslashit($root) . $name);
 					if ($dir && is_dir($dir)) $locations[$namespace][] = $dir;
@@ -176,7 +187,9 @@ final class Usage {
 
 		$other = [(int) get_option('site_icon')];
 		foreach ($wpdb->get_col("SELECT option_value FROM {$wpdb->options} WHERE option_name LIKE 'theme\\_mods\\_%' OR option_name LIKE 'widget\\_media\\_%' OR option_name LIKE 'wpseo%'") as $value) {
+			// Among them plain strings too: Yoast keeps hashes and versions under wpseo_*.
 			$value = maybe_unserialize($value);
+			if (!is_array($value)) continue;
 			array_walk_recursive($value, function ($v, $k) use (&$other) {
 				if (is_numeric($v) && preg_match('/(^|_)(custom_logo|attachment_id|ids|image_id|logo_id|header_image_data)$|image|logo/', (string) $k)) $other[] = (int) $v;
 			});
@@ -206,6 +219,7 @@ final class Usage {
 				continue;
 			}
 
+			if (in_array($key, self::INDEXES, true)) continue;
 			$field_key = $meta['_' . $key] ?? '';
 			$field = str_starts_with($field_key, 'field_') ? self::field($field_key) : null;
 			if ($field === null) {
@@ -215,11 +229,14 @@ final class Usage {
 
 			switch ($field['kind']) {
 				case 'image':
-					$id = (int) $value;
-					if (isset($images[$id])) $refs[$id]['p'][self::place($field, $scope)] = true;
-					break;
 				case 'gallery':
-					foreach (self::ids($value) as $id) if (isset($images[$id])) $refs[$id]['p'][self::place($field, $scope)] = true;
+					// A row its repeater or flexible content no longer lists: ACF leaves the values of
+					// removed rows behind, and nothing shows them.
+					$place = self::place($key, $meta, $field, $scope);
+					if ($place === null) break;
+					foreach ($field['kind'] === 'image' ? [(int) $value] : self::ids($value) as $id) {
+						if (isset($images[$id])) $refs[$id]['p'][$place] = true;
+					}
 					break;
 				case 'content':
 					self::read_content($value, $refs, $images);
@@ -228,22 +245,80 @@ final class Usage {
 		}
 	}
 
-	/** A field's place: its layout or the object, then the names down to it. */
-	private static function place(array $field, string $scope): string {
-		return ($field['layout'] !== null ? 'layout:' . $field['layout'] : $scope) . '|' . $field['path'];
+	/**
+	 * Where a value sits, from its meta key. The rows along the key are those of the
+	 * containers the object has meta for — `content` in `content_2_cards_1_cover`, then
+	 * `content_2_cards` — each one a repeater (its meta is a count) or a flexible content
+	 * (its meta lists the layout of each row). The outermost flexible content gives the
+	 * scope, `layout:cards`: its rows are what block templates are handed. Each other
+	 * container is a name and `*`. Null for a row past those its container lists.
+	 *
+	 * @param array<string, string> $meta The object's meta.
+	 */
+	private static function place(string $key, array $meta, array $field, string $scope): ?string {
+		$segments = [];
+		$outer = null;
+		$from = 0;
+		if (preg_match_all('/_(\d+)_/', $key, $m, PREG_OFFSET_CAPTURE)) {
+			foreach ($m[0] as $j => [$match, $pos]) {
+				$prefix = substr($key, 0, $pos);
+				if (!isset($meta[$prefix], $meta['_' . $prefix])) continue;
+				$names = self::names_of((string) $meta['_' . $prefix], substr($prefix, $from));
+				$rows = maybe_unserialize($meta[$prefix]);
+				$row = (int) $m[1][$j][0];
+				if (is_array($rows) ? !isset($rows[$row]) : (is_numeric($rows) && $row >= (int) $rows)) return null;
+				$layout = is_array($rows) ? (string) $rows[$row] : '';
+				if ($outer === null && !$segments && $layout !== '') {
+					$outer = [$layout, $names];
+				} else {
+					array_push($segments, ...$names);
+					$segments[] = '*';
+				}
+				$from = $pos + strlen($match);
+			}
+		}
+		array_push($segments, ...$field['segments']);
+		$path = implode('.', $segments);
+		if ($outer === null) return "$scope|$path";
+		// The row of the layout, and the same value by its path from the object, for a theme
+		// that loops over the flexible content itself: a call on either shows it.
+		return "layout:{$outer[0]}|$path" . self::ALTERNATIVE . "$scope|" . implode('.', array_merge($outer[1], ['*'], $segments));
+	}
+
+	/**
+	 * A container's names from its field key — `header.items` for a repeater in a group —
+	 * or, when ACF does not know the key (a clone's), the text of the meta key.
+	 *
+	 * @return string[]
+	 */
+	private static function names_of(string $field_key, string $text): array {
+		$field = str_starts_with($field_key, 'field_') ? self::field($field_key) : null;
+		return $field ? array_values(array_diff($field['segments'], ['*'])) : [$text];
 	}
 
 	/**
 	 * How the values of an ACF field are read: 'image' (an ID), 'gallery' (a list of IDs),
-	 * 'content' (HTML), 'none' (anything else: text, a choice, a post). With its path from
-	 * the object, or from the row of the flexible content layout it sits in, and '*' for
-	 * each repeater row and gallery item. Null when ACF does not know the key.
+	 * 'content' (HTML), 'none' (anything else: text, a choice, a post). With its segments
+	 * from the nearest row that holds it — the groups it is in, its name, and `*` for the
+	 * items of a gallery. Null when ACF does not know the key.
 	 */
 	private static function field(string $key): ?array {
 		if (array_key_exists($key, self::$fields)) return self::$fields[$key];
 		if (!function_exists('acf_get_field')) return self::$fields[$key] = null;
 
 		$field = acf_get_field($key);
+		$prefix = [];
+		// A field of a clone is stored under `field_{clone}_field_{field}`, which ACF only knows
+		// in the clone's context: the field is the last key, the clone the one before.
+		if ((!is_array($field) || empty($field['name'])) && ($at = strrpos($key, '_field_')) !== false) {
+			$field = acf_get_field(substr($key, $at + 1));
+			$clone = acf_get_field(substr($key, 0, $at));
+			if (is_array($field) && is_array($clone) && ($clone['type'] ?? '') === 'clone') {
+				// Shown as a group, the clone's fields sit under its name; with prefix_name, their names start with it.
+				if (($clone['display'] ?? '') === 'group') $prefix[] = (string) $clone['name'];
+				if (!empty($clone['prefix_name'])) $field['name'] = $clone['name'] . '_' . $field['name'];
+			}
+		}
 		if (!is_array($field) || empty($field['name'])) return self::$fields[$key] = null;
 
 		$kind = match ($field['type'] ?? '') {
@@ -255,25 +330,16 @@ final class Usage {
 		$segments = [(string) $field['name']];
 		if ($kind === 'gallery') $segments[] = '*';
 
-		$layout = null;
+		// Groups keep their sub-fields' values under the group's name; a row stops the climb.
 		$child = $field;
 		for ($guard = 0; $guard < 12; $guard++) {
 			$parent = !empty($child['parent']) ? acf_get_field($child['parent']) : false;
-			if (!is_array($parent) || empty($parent['type'])) break;
-			if ($parent['type'] === 'flexible_content') {
-				foreach ((array) ($parent['layouts'] ?? []) as $l) {
-					if (($l['key'] ?? '') === ($child['parent_layout'] ?? '')) $layout = (string) $l['name'];
-				}
-				// Rows of an unknown layout still sit in the flexible field.
-				if ($layout === null) array_unshift($segments, (string) $parent['name'], '*');
-				break;
-			}
-			if ($parent['type'] === 'repeater') array_unshift($segments, (string) $parent['name'], '*');
-			elseif ($parent['type'] === 'group') array_unshift($segments, (string) $parent['name']);
+			if (!is_array($parent) || ($parent['type'] ?? '') !== 'group') break;
+			array_unshift($segments, (string) $parent['name']);
 			$child = $parent;
 		}
 
-		return self::$fields[$key] = ['kind' => $kind, 'layout' => $layout, 'path' => implode('.', $segments)];
+		return self::$fields[$key] = ['kind' => $kind, 'segments' => array_merge($prefix, $segments)];
 	}
 
 	/** Images in HTML: the editor's wp-image-N class, galleries and blocks by ID. */
