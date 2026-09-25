@@ -14,6 +14,7 @@ use TimberAVIF\Config;
 use TimberAVIF\Engine;
 use TimberAVIF\Index;
 use TimberAVIF\Lock;
+use TimberAVIF\Optimize;
 use TimberAVIF\Renderer;
 use TimberAVIF\Server;
 use TimberAVIF\Tools;
@@ -531,6 +532,195 @@ try {
 	wp_delete_attachment($it_id, true);
 	$GLOBALS['tavif_it']['uploaded'] = array_diff($GLOBALS['tavif_it']['uploaded'], [$it_id]);
 	check('deleting the last one deletes them', !array_filter($shared_files, 'file_exists'));
+
+	section('Optimize');
+	if (!function_exists('acf_add_local_field_group')) {
+		echo "  skipped: ACF is not active\n";
+	} else {
+		// A theme's worth of templates, in a location of their own.
+		$views = "$work/views";
+		$tpl = [
+			'macros.twig' => "{% macro image(image, options = {}) %}{% import '@timber-avif/macros.twig' as tavif %}{{ tavif.image(image, options) }}{% endmacro %}",
+			'page.twig' => "{% import 'macros.twig' as macros %}{% include 'header.twig' with { header: post.header } %}{% for content in post.meta('content') %}{% include 'blocks/block-' ~ content.acf_fc_layout ~ '.twig' %}{% endfor %}{% include 'footer.twig' %}",
+			'header.twig' => "{% import 'macros.twig' as macros %}{% if header.cover %}{{ macros.image(get_image(header.cover), { sizes: '(min-width: 64rem) 50vw, 100vw' }) }}{% endif %}",
+			'blocks/block-cards.twig' => "{% import 'macros.twig' as macros %}{% for card in content.cards %}{% set cover = card.cover ? get_image(card.cover) : null %}{{ macros.image(cover, { sizes: (loop.length > 2 ? '(min-width: 64rem) 300px' : '(min-width: 64rem) 700px') ~ ', (min-width: 40rem) 50vw, calc(100vw - 2rem)' }) }}{% endfor %}",
+			'blocks/block-hero.twig' => "{% import 'macros.twig' as macros %}{{ macros.image(get_image(content.image), { sizes: '100vw', atf: true }) }}",
+			'blocks/block-logos.twig' => "{% import 'macros.twig' as macros %}{% for logo in content.logos %}{{ macros.image(logo, { sizes: '120px', max: 240 }) }}{% endfor %}",
+			'footer.twig' => "{% import 'macros.twig' as macros %}{{ macros.image(get_image(options.logo), { sizes: '200px' }) }}",
+			'archive.twig' => "{% import 'macros.twig' as macros %}{% for post in posts %}{{ macros.image(post.thumbnail, { sizes: '400px' }) }}{% endfor %}",
+		];
+		foreach ($tpl as $name => $source) {
+			wp_mkdir_p(dirname("$views/$name"));
+			file_put_contents("$views/$name", $source);
+		}
+		$location = function ($paths) use ($views) { $paths['__main__'][] = $views; return $paths; };
+		add_filter('timber/locations', $location);
+
+		acf_add_local_field_group(['key' => 'group_tavif', 'title' => 'tavif', 'location' => [[['param' => 'post_type', 'operator' => '==', 'value' => 'page']]], 'fields' => [
+			['key' => 'field_tavif_header', 'name' => 'header', 'type' => 'group', 'sub_fields' => [
+				['key' => 'field_tavif_header_cover', 'name' => 'cover', 'type' => 'image'],
+			]],
+			['key' => 'field_tavif_content', 'name' => 'content', 'type' => 'flexible_content', 'layouts' => [
+				'l_cards' => ['key' => 'l_cards', 'name' => 'cards', 'sub_fields' => [
+					['key' => 'field_tavif_cards', 'name' => 'cards', 'type' => 'repeater', 'sub_fields' => [['key' => 'field_tavif_card_cover', 'name' => 'cover', 'type' => 'image']]],
+				]],
+				'l_hero' => ['key' => 'l_hero', 'name' => 'hero', 'sub_fields' => [['key' => 'field_tavif_hero_image', 'name' => 'image', 'type' => 'image']]],
+				'l_logos' => ['key' => 'l_logos', 'name' => 'logos', 'sub_fields' => [['key' => 'field_tavif_logos', 'name' => 'logos', 'type' => 'gallery']]],
+			]],
+			['key' => 'field_tavif_secret', 'name' => 'secret', 'type' => 'image'],
+		]]);
+		acf_add_local_field_group(['key' => 'group_tavif_options', 'title' => 'tavif options', 'location' => [[['param' => 'options_page', 'operator' => '==', 'value' => 'tavif']]], 'fields' => [
+			['key' => 'field_tavif_logo', 'name' => 'logo', 'type' => 'image'],
+		]]);
+
+		$opt = [];
+		foreach (['card', 'card2', 'hero', 'cover', 'logo_a', 'site_logo', 'featured', 'unused', 'content', 'plugin', 'secret'] as $i => $name) {
+			// The second card also gets a theme size as wide as tavif-1920: one file, two names.
+			if ($name === 'card2') add_image_size('opt-hero', 1920, 0);
+			$opt[$name] = upload(solid("$work/opt-$name.jpg", 3000, 2000, ['red', 'blue', 'green', 'orange', 'purple', 'gray', 'yellow', 'pink', 'brown', 'navy', 'teal'][$i]));
+			if ($name === 'card2') remove_image_size('opt-hero');
+		}
+		$page = wp_insert_post(['post_title' => 'tavif optimize', 'post_type' => 'page', 'post_status' => 'publish',
+			'post_content' => '<img class="wp-image-' . $opt['content'] . '" src="' . wp_get_attachment_url($opt['content']) . '">']);
+		update_field('field_tavif_header', ['field_tavif_header_cover' => $opt['cover']], $page);
+		update_field('field_tavif_content', [
+			['acf_fc_layout' => 'cards', 'field_tavif_cards' => [['field_tavif_card_cover' => $opt['card']], ['field_tavif_card_cover' => $opt['card2']]]],
+			['acf_fc_layout' => 'hero', 'field_tavif_hero_image' => $opt['hero']],
+			['acf_fc_layout' => 'logos', 'field_tavif_logos' => [$opt['logo_a']]],
+		], $page);
+		update_field('field_tavif_secret', $opt['secret'], $page);
+		update_field('field_tavif_logo', $opt['site_logo'], 'option');
+		$blog = wp_insert_post(['post_title' => 'tavif post', 'post_status' => 'publish']);
+		set_post_thumbnail($blog, $opt['featured']);
+		update_post_meta($blog, 'some_plugin_image', (string) $opt['plugin']);
+		drain();
+
+		$card = $opt['card'];
+		$dir = dir_of($card);
+		// What an older version, a crash and Timber leave next to the files.
+		$orphans = ["$dir/opt-card-640x427.avif.lock", "$dir/gone-640x427.jpg.avif", "$dir/opt-card-640x427.jpg.tavif-Ab12Cd.avif"];
+		foreach ($orphans as $path) file_put_contents($path, 'x');
+		copy("$dir/opt-card-640x427.jpg", $timber_resize = "$dir/opt-card-640x0-c-default.jpg");
+		// |towebp's name, and the one an older version gave its copies.
+		file_put_contents($towebp = "$dir/opt-card-640x427.webp", 'x');
+
+		Optimize::start();
+		do { $job = Optimize::analyse(30); } while ($job['phase'] !== 'done');
+		$caps = fn($id) => $job['plan'][$id]['caps'] ?? null;
+		check('the templates are read: no call left untraced', empty($job['untraced']), wp_json_encode($job['untraced'] ?? []));
+		check('cards: the wider of the two sizes a ternary gives, 700px at 2x, up to 1600', $caps($card) === ['' => 1600], wp_json_encode($caps($card)));
+		check('a hero at 100vw keeps every width', !isset($job['plan'][$opt['hero']]) && ($job['images']['kept']['whole'] ?? 0) >= 2);
+		check('a logo in a gallery shown at 120px: not below 1024', $caps($opt['logo_a']) === ['' => 1024], wp_json_encode($caps($opt['logo_a'])));
+		check('the options logo, through the options variable', $caps($opt['site_logo']) === ['' => 1024], wp_json_encode($caps($opt['site_logo'])));
+		check('a featured image shown by a loop over posts', $caps($opt['featured']) === ['' => 1024], wp_json_encode($caps($opt['featured'])));
+		check('an image used nowhere keeps up to 1024', $caps($opt['unused']) === ['' => 1024] && $job['images']['unused'] >= 1);
+		check('an image in post content keeps everything', !isset($job['plan'][$opt['content']]) && ($job['images']['kept']['content'] ?? 0) >= 1);
+		check('an image in another plugin\'s meta keeps everything', !isset($job['plan'][$opt['plugin']]) && ($job['images']['kept']['other'] ?? 0) >= 1);
+		check('an image in a field no template shows keeps everything', !isset($job['plan'][$opt['secret']]) && isset($job['unmatched']['post|secret']), wp_json_encode($job['unmatched'] ?? []));
+		check('orphans counted, what Timber made apart', $job['totals']['orphans']['files'] >= 3 && $job['totals']['timber']['files'] >= 2, wp_json_encode($job['totals']));
+		check('a dry run deletes nothing', is_file("$dir/opt-card-1920x1280.jpg") && is_file("$dir/opt-card-scaled.jpg.avif") && !Index::caps($card));
+
+		$GLOBALS['tavif_rocket'] = [];
+		$stamp = get_post_meta($card, Index::STAMP, true);
+		$announced = [];
+		$listen = function ($ids) use (&$announced) { $announced = array_merge($announced, $ids); };
+		add_action('timber_avif/changed', $listen);
+		do { $job = Optimize::apply(30); } while (empty($job['applied']));
+		remove_action('timber_avif/changed', $listen);
+		check('each step announces the images it changed, for any page cache', in_array($card, $announced, true) && in_array($opt['unused'], $announced, true));
+		$c2 = wp_get_attachment_metadata($opt['card2']);
+		check('a file another size shares stays, under that name', isset($c2['sizes']['opt-hero']) && !isset($c2['sizes']['tavif-1920']) && is_file(dir_of($opt['card2']) . '/' . $c2['sizes']['opt-hero']['file']));
+		check('its modern copy goes', !is_file(dir_of($opt['card2']) . '/' . $c2['sizes']['opt-hero']['file'] . '.avif'));
+		clearstatcache();
+		check('past the cap: the JPEG, its copy and the full-size copy go', !is_file("$dir/opt-card-1920x1280.jpg") && !is_file("$dir/opt-card-1920x1280.jpg.avif") && !is_file("$dir/opt-card-scaled.jpg.avif"));
+		check('up to it, everything stays, and the original', is_file("$dir/opt-card-1600x1067.jpg") && is_file("$dir/opt-card-1600x1067.jpg.avif") && is_file("$dir/opt-card-scaled.jpg"));
+		check('WordPress\'s own sizes stay', is_file("$dir/opt-card-2048x1365.jpg") && is_file("$dir/opt-card-1536x1024.jpg"));
+		check('the metadata no longer lists them', !isset(wp_get_attachment_metadata($card)['sizes']['tavif-1920']) && isset(wp_get_attachment_metadata($card)['sizes']['tavif-1600']));
+		check('the cap is recorded, and nothing is queued again', Index::caps($card) === ['' => 1600] && get_post_meta($card, Index::STAMP, true) === $stamp);
+		$data = Renderer::sources($card, ['sizes' => '(min-width: 64rem) 700px, (min-width: 40rem) 50vw, calc(100vw - 2rem)']);
+		check('served up to 1600, in AVIF, complete', $data['modern'] && str_contains($data['modern']['srcset'], ' 1600w') && !str_contains($data['modern']['srcset'], ' 1920w') && !str_contains($data['srcset'], ' 1920w') && !str_contains($data['srcset'], ' 2048w'), $data['srcset']);
+		check('and that asks for nothing', Index::needs($card) === []);
+		check('orphans deleted, what Timber made kept', !array_filter($orphans, 'file_exists') && is_file($timber_resize) && is_file($towebp));
+		check('and the page cache purged', in_array('domain', purged(), true));
+		check('the other images are untouched', is_file(dir_of($opt['hero']) . '/opt-hero-scaled.jpg.avif') && is_file(dir_of($opt['content']) . '/opt-content-1920x1280.jpg.avif'));
+		drain();
+		check('the worker makes nothing past the cap', !is_file("$dir/opt-card-1920x1280.jpg") && !is_file("$dir/opt-card-1920x1280.jpg.avif"));
+		Config::bump_generation();
+		drain();
+		check('not even when the library is re-encoded', !is_file("$dir/opt-card-1920x1280.jpg.avif") && !is_file("$dir/opt-card-2048x1365.jpg.avif") && is_file("$dir/opt-card-1600x1067.jpg.avif"));
+
+		// The same image, now in a hero.
+		Renderer::sources($card, ['sizes' => '100vw']);
+		check('shown wider: the need is recorded and the image queued', Index::needs($card) !== [] && get_post_meta($card, Index::STAMP, true) === '');
+		check('meanwhile the capped set is served, still in AVIF', Renderer::sources($card, ['sizes' => '100vw'])['modern'] !== null);
+		drain();
+		$data = Renderer::sources($card, ['sizes' => '100vw']);
+		check('then every width is built again and the cap is gone', !Index::caps($card) && is_file("$dir/opt-card-1920x1280.jpg") && str_contains($data['modern']['srcset'] ?? '', ' 2560w'), $data['modern']['srcset'] ?? '-');
+
+		check('the macro\'s sizes, within the cap, records nothing', (function () use ($opt) {
+			render('{{ m.image(img, { sizes: "120px", max: 240 }) }}', ['img' => $opt['logo_a']]);
+			return Index::needs($opt['logo_a']) === [];
+		})());
+		check('a call that says nothing of its width may need every one', (function () use ($opt) {
+			Renderer::sources($opt['site_logo']);
+			return array_column(Index::needs($opt['site_logo']), 'pixels') === [\TimberAVIF\Need::WHOLE];
+		})());
+		check('|best_src wider than the cap records the need', (function () use ($opt) {
+			Renderer::url($opt['logo_a'], 1920);
+			return Index::needs($opt['logo_a']) !== [];
+		})());
+
+		// A render finding the image too small while the worker is on it: the need waits for the next pass.
+		$mid = $opt['unused'];
+		Worker::stale($mid);
+		$inject = function ($meta_id, $object_id, $key) use ($mid) {
+			if ((int) $object_id === $mid && $key === Index::ATTEMPTS) Index::need($mid, '', 1500);
+		};
+		add_action('added_post_meta', $inject, 10, 3);
+		Worker::process($mid, microtime(true) + 60);
+		remove_action('added_post_meta', $inject, 10);
+		check('a need recorded during the pass keeps the image pending', get_post_meta($mid, Index::STAMP, true) === '' && Index::needs($mid) !== []);
+		drain();
+		check('and the next pass raises the cap', Index::caps($mid) === ['' => 1600] && Index::needs($mid) === [], wp_json_encode(Index::caps($mid)));
+
+		// A translation of a capped file: raised together.
+		$twin = wp_insert_attachment(['post_title' => 'twin', 'post_mime_type' => 'image/jpeg', 'post_status' => 'inherit'], get_attached_file($opt['featured']));
+		$GLOBALS['tavif_it']['uploaded'][] = $twin;
+		update_post_meta($twin, '_wp_attachment_metadata', wp_get_attachment_metadata($opt['featured']));
+		Index::put_caps($twin, Index::caps($opt['featured']));
+		update_post_meta($twin, Index::STAMP, Config::fingerprint());
+		Renderer::sources($opt['featured'], ['sizes' => '100vw']);
+		drain();
+		check('raising one language\'s cap raises the other\'s, and builds it', !Index::caps($opt['featured']) && !Index::caps($twin) && Renderer::sources($twin, ['sizes' => '100vw'])['modern'] !== null);
+
+		$was = Optimize::capped();
+		check('Remove the limits: every capped image is queued', Optimize::reset() === $was && !Optimize::capped() && Worker::count_pending() >= $was - 1);
+		drain();
+		check('and gets every width back', is_file(dir_of($opt['unused']) . '/opt-unused-1920x1280.jpg') && is_file(dir_of($opt['unused']) . '/opt-unused-scaled.jpg.avif'));
+
+		// Another plugin writing its own copies next to the originals: those are its files.
+		$ewww = $opt['hero'];
+		$edir = dir_of($ewww);
+		file_put_contents($theirs = "$edir/opt-hero-640x427.jpg.webp", 'x');
+		file_put_contents($theirs_v = "$edir/opt-hero-640x427.webp", 'x');
+		file_put_contents($lost = "$edir/deleted-photo-640x427.jpg.webp", 'x');
+		if (!defined('EWWW_IMAGE_OPTIMIZER_VERSION')) define('EWWW_IMAGE_OPTIMIZER_VERSION', 'test');
+		$found = array_map('basename', \TimberAVIF\Optimize\Orphans::scan($edir)['orphans']['files']);
+		check('another converter active: its copies of existing files are left alone', !in_array(basename($theirs), $found, true) && !in_array(basename($theirs_v), $found, true));
+		check('a copy whose original is gone is still an orphan', in_array(basename($lost), $found, true), implode(', ', $found));
+		array_map('unlink', [$theirs, $theirs_v, $lost]);
+
+		@unlink($timber_resize);
+		@unlink($towebp);
+		remove_filter('timber/locations', $location);
+		delete_field('field_tavif_logo', 'option');
+		wp_delete_post($page, true);
+		wp_delete_post($blog, true);
+		Optimize::discard();
+		foreach (array_keys($tpl) as $name) @unlink("$views/$name");
+		@rmdir("$views/blocks");
+		@rmdir($views);
+	}
 
 	section('Server type');
 	$htaccess = get_home_path() . '.htaccess';

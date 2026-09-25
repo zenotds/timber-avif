@@ -16,7 +16,8 @@
 		disclosure: null
 	}|merge(options) %}
 
-	{% set data = image_sources(image, { widths: config.widths, max: config.max, ratio: config.ratio, disclosure: config.disclosure, atf: config.atf }) %}
+	{# `sizes` goes along so that an image Optimize trimmed, shown here wider than before, gets its larger files back #}
+	{% set data = image_sources(image, { sizes: config.sizes, widths: config.widths, max: config.max, ratio: config.ratio, disclosure: config.disclosure, atf: config.atf }) %}
 
 	{% if data.ok %}
 		{% set altText = config.alt ?? (image.alt is defined and image.alt ? image.alt : (image.title is defined ? image.title : '')) %}

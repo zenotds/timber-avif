@@ -1,17 +1,18 @@
-# Timber AVIF (v7.0.5)
+# Timber AVIF (v7.1.0)
 
 Responsive images for Timber 2.x. Generates AVIF (or WebP) copies of every image in the media library **in the background**, and builds a `<picture>` whose markup depends only on what has been recorded — never on what a page render managed to convert.
 
 ## Design
 
 - **Rendering never converts, resizes or touches the disk.** `image_sources()` reads the attachment's metadata and a small index in its post meta. A page cache stores exactly what a fresh render would produce. About 0.12 ms per image.
-- **Conversion happens in a background worker**: WP-Cron, after an admin response has been sent, the admin's *Process now*, or `wp timber-avif work`. One worker at a time for the whole site, so twenty concurrent requests never run two hundred encodes.
+- **Conversion happens in a background worker**: WP-Cron, after an admin response has been sent, the admin's *Process now*, or `wp timber-avif work`. A pass that leaves work pending starts the next one itself, so the queue empties without visitors or a reloaded admin page. One worker at a time for the whole site, so twenty concurrent requests never run two hundred encodes.
 - **The queue is derived, not stored.** An image is pending when its stamp differs from the current settings' fingerprint. An upload has no stamp, a new quality changes the fingerprint, a template asking for a new crop deletes the stamp. There is no list to lose jobs from and no cron guard to get wrong.
 - **The canonical widths are registered image sizes**, built by WordPress at upload like any other sub-size. `wp media regenerate`, the `-scaled` original and deletion behave as in core.
 - **Encoding goes through WordPress's image editors**, from the file WordPress serves as full size. Colour profiles and EXIF orientation are kept, so Display P3 photos keep their colours.
 - **Modern files are named after the file they replace** (`photo-640x427.jpg.avif`) and listed in the index, so deleting an image deletes them, and `photo.jpg`, `photo.png` and an uploaded `photo.avif` never claim the same path.
 - **Images in post content** get a `<picture>` too, through `wp_content_img_tag`.
 - **Page caches are purged when images change** — with WP Rocket built in, through an action for anything else — and a file replaced in place by an import is re-encoded instead of served in its old version.
+- **Optimize removes, on request, what no template shows**: the widths wider than each image is ever displayed at, and files no attachment owns. It reads the theme's Twig and where each image is placed, and reports before deleting anything. An image shown wider later gets its widths back on its own.
 - **Settings store only what differs from the defaults**, so a value left alone follows future defaults. Edited under Settings → Timber AVIF.
 - **A Composer package** (or a drop-in folder), with the macro shipped as `@timber-avif/macros.twig`, so themes do not carry copies that drift.
 
@@ -92,7 +93,7 @@ A theme whose `partial/macros.twig` holds other macros too can keep every call s
 
 | Option | Default | What it does |
 |---|---|---|
-| `sizes` | `'100vw'` | The image's CSS width. Lazy images get `auto, ` in front of it: browsers that support it measure the real width, and the rest use yours. |
+| `sizes` | `'100vw'` | The image's CSS width. Lazy images get `auto, ` in front of it: browsers that support it measure the real width, and the rest use yours. It is also what Optimize reads, and what an image it trimmed is compared with on render: shown wider, it gets its widths back. |
 | `widths` | Settings → Widths | Pick a subset of the configured widths for this image. Widths not configured have no files and are ignored. |
 | `max` | — | Cap the candidates, for images displayed small. One candidate past it is kept, for DPR 2. Below every configured width, the worker builds that width for this image. |
 | `ratio` | — | Crop server-side (`'16/9'` or a float). The first render asks for it; until the worker builds it, the uncropped files are served in a box of that ratio and `object-cover` crops them. |
@@ -131,7 +132,7 @@ do_action('timber_avif/idle');                       // the queue is empty
 
 With **WP Rocket** active, Timber AVIF listens itself: it purges the published posts that show the image (featured image, content, custom fields, the post it was uploaded to) and the terms that do (a category's header image). If the image is used site-wide — an ACF options field, the logo, the site icon — or more than 50 pages would need purging, it purges everything, at most once every 15 minutes while a backlog is being converted and once more when the queue empties. Any other cache can listen to the same action.
 
-Deleting files goes the other way round: a browser does not fall back from a `<source>` that fails, so a cached page pointing at a deleted AVIF shows a broken image. *Delete conversions* purges the whole cache after removing the files.
+Deleting files goes the other way round: a browser does not fall back from a `<source>` that fails, so a cached page pointing at a deleted AVIF shows a broken image. *Delete conversions* and *Optimize* purge the whole cache after removing the files.
 
 ### Replaced files
 
@@ -159,7 +160,7 @@ On nginx, add `image/avif avif;` to `mime.types`. The settings page asks the ser
 ## How it works
 
 1. **Upload.** WordPress builds its sub-sizes, including one per canonical width (`tavif-640`, …) below the image's own width. Nothing is converted during the upload request.
-2. **Pending.** The attachment has no stamp yet, so it is pending. The worker is woken through WP-Cron half a minute later, once the uploader is done.
+2. **Pending.** The attachment has no stamp yet, so it is pending. The worker is woken through WP-Cron half a minute later, once the uploader is done — or right after the admin request, when the server can send the response first. A pass that leaves work pending starts the next one itself, with a loopback request to `admin-ajax.php` carrying a single-use token, so a library of a thousand images is converted without a visitor. Where the site cannot reach itself (HTTP authentication on a staging site, a host that blocks loopbacks), the Queue card says so and WP-Cron carries on as before.
 3. **Worker.** Builds any canonical size an older image lacks, then encodes each candidate from the full-size file, writing it aside and renaming it into place. A copy meaningfully heavier than the file it replaces is discarded, and the verdict is recorded. The index and the stamp are saved.
 4. **Render.** Candidates come from the metadata, modern copies from the index. The `<source>` is emitted only when every candidate has been processed and the largest has a modern copy; otherwise the fallback set alone is served, which is always complete.
 
@@ -167,15 +168,33 @@ Changing a setting that affects the files — format, quality, widths, limits �
 
 The worker is protected against the cases that stall a queue: an image slower than the time budget still advances one file per pass, an image that keeps killing the PHP process is set aside after three attempts, a worker that dies holding the lock releases it when the lock expires, and a failed encode is retried after a day, three times.
 
+## Optimize
+
+Every configured width of every image is made at upload and by the worker, whatever the image is used for: a photo in a card gets the same files as a hero. Optimize, under Tools, removes afterwards what no template shows.
+
+1. **Where each image is placed**, from the database: featured images, ACF fields — the field key ACF stores next to each value gives the field's type and its place in repeaters, groups and flexible content layouts — term fields, options pages, post content.
+2. **How the templates show those places**, from the theme's Twig, read without rendering: every call to a macro named `image`, to `image_sources()` and to `|best_src`, followed through `set`, `for`, `include … with`, the theme's own macros and their arguments. `{% include "block-" ~ row.acf_fc_layout ~ ".twig" %}` ties each block template to its ACF layout. A `sizes` built by a condition counts as its widest branch.
+3. **The widest need** of each image: its `sizes` evaluated as a browser does over viewports from 320 to 2560 px, at 2x, capped by `max`, rounded up to a configured width, and never below 1024.
+
+Past that width the image's modern copies, its `tavif-*` JPEGs, its crops and the modern copy of the full-size file are deleted, and the width is kept as the image's cap: the worker makes nothing past it, not even when the library is re-encoded. A template that later shows the image wider — a card photo reused in a hero, a redesigned block — raises the cap on render: the widths are built in the background and the page is purged, and meanwhile the capped set is served.
+
+An image keeps every file when it is referenced somewhere this reading cannot place (another plugin's meta, an SEO image, the site icon), in post content, in a field no template call leads to, or shown at full width. One that nothing references keeps 1024 px and below. Never deleted: originals, `-scaled` files and WordPress's own sizes, which other sites, newsletters and `og:image` may link.
+
+Files no attachment owns go too, when they carry a name only this package or an interrupted encode write: `photo-640x427.jpg.avif` of a deleted image, `.tavif-XXXXXX.avif`, an older version's `.avif.lock`. What Timber writes next to the originals — resizes (`photo-640x0-c-default.jpg`), conversions (`photo.webp`), which are also the names an older version gave its copies — only when asked: Timber makes again any a template still asks for, on the first view of that page. Where another plugin writes its own WebP or AVIF copies (EWWW, ShortPixel, Imagify, Smush, WebP Express, Converter for Media, LiteSpeed), a copy counts only once its original is gone.
+
+Optimize trusts `sizes`. A card that says `300px` but is laid out 700 px wide on a tablet gets, after Optimize, no more than 300 px at 2x needs, including from browsers that measure it themselves (`sizes="auto"`). The theme's macros already ask for an accurate `sizes`; Optimize makes it matter more.
+
+The analysis is a dry run: its report lists what would go, per kind, with the fields and template calls it could not follow. *Delete* applies it and purges the page cache. *Remove the limits* takes every cap off, and the worker makes the missing widths again.
+
 ## Admin
 
 Settings → Timber AVIF.
 
 - **Settings**: format (auto, AVIF, WebP, none), quality per format, widths, content images, upload and conversion limits, the discard tolerance. Each value that differs from its default shows the default next to it; *Reset to defaults* removes them all.
-- **Tools**: *Process now* works through the queue from the browser. *Rebuild everything* re-encodes the library, after upgrading the server's image libraries for instance. *Clear cache* detects the engines again and retries failures. *Delete conversions* removes every generated file, rebuilt in the background.
+- **Tools**: *Optimize* analyses and removes the widths no template shows (above). *Process now* works through the queue from the browser. *Rebuild everything* re-encodes the library, after upgrading the server's image libraries for instance. *Clear cache* detects the engines again and retries failures. *Delete conversions* removes every generated file, rebuilt in the background.
 - **Issues**: the images the worker could not convert, with the reason.
 
-The media library gets a column with each image's state.
+The Library and Queue cards follow the queue while the worker goes through it, without a reload. The media library gets a column with each image's state.
 
 ## WP-CLI
 
@@ -186,6 +205,7 @@ wp timber-avif rebuild                       # re-encode everything with the cur
 wp timber-avif purge                         # delete generated files
 wp timber-avif detect                        # which engine encodes AVIF / WebP in this PHP
 wp timber-avif clear-cache                   # detect the engines again
+wp timber-avif optimize [--dry-run]          # remove the widths no template shows; --timber-resizes, --reset
 ```
 
 The CLI may be a different PHP build than the web server. If it cannot encode the format being served, `work` says so and does nothing, rather than recording failures the web server would not have.
@@ -248,4 +268,4 @@ wp eval-file tests/integration.php     # a throwaway site with Timber and this p
 wp eval-file tests/gd.php              # GD's AVIF path; imageavif() stood in for where GD has none
 ```
 
-The integration test uploads its own images, runs the worker, renders through Twig and deletes what it made. It changes settings: do not point it at a real site.
+The integration test uploads its own images, runs the worker, renders through Twig and deletes what it made. Its Optimize section needs ACF active, and is skipped otherwise. It changes settings: do not point it at a real site.

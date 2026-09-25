@@ -33,16 +33,17 @@ final class Sizes {
 	}
 
 	/**
-	 * Create the canonical sizes an attachment is missing — it was uploaded before v7, or
-	 * before a width was added — and only those: wp_update_image_subsizes() on its own
-	 * would also build whatever other plugins registered.
+	 * Create the canonical sizes an attachment is missing — it was uploaded before v7, a
+	 * width was added, or a template now shows it wider than Optimize had left it — and only
+	 * those: wp_update_image_subsizes() on its own would also build whatever other plugins
+	 * registered. None past $cap.
 	 */
-	public static function ensure(int $id, array $meta): array {
+	public static function ensure(int $id, array $meta, ?int $cap = null): array {
 		require_once ABSPATH . 'wp-admin/includes/image.php';
 
 		$full = (int) ($meta['width'] ?? 0);
-		$ours = static function ($missing) use ($full) {
-			return array_filter((array) $missing, fn($data, $name) => str_starts_with($name, self::PREFIX) && (int) $data['width'] < $full, ARRAY_FILTER_USE_BOTH);
+		$ours = static function ($missing) use ($full, $cap) {
+			return array_filter((array) $missing, fn($data, $name) => str_starts_with($name, self::PREFIX) && (int) $data['width'] < $full && ($cap === null || (int) $data['width'] <= $cap), ARRAY_FILTER_USE_BOTH);
 		};
 
 		// wp_update_image_subsizes() runs `wp_generate_attachment_metadata` again, as if the
@@ -77,13 +78,19 @@ final class Sizes {
 	 * until the worker builds them it is also served from the proportional sizes WordPress
 	 * already made (medium, medium_large, large…) rather than from the full file alone.
 	 *
+	 * With $cap — Optimize found the image never shown wider — the set stops at that width
+	 * and leaves the full file out. Applied to the widths wanted, before anything is filled
+	 * in: the `tavif-*` sizes Optimize removed are not missing, and filling their place with
+	 * the `1536x1536` WordPress made would have the worker convert it.
+	 *
 	 * @param array $meta   Attachment metadata: width, height, file, sizes.
 	 * @param int[] $widths Configured (or per-call) widths.
-	 * @param ?int  $max    Cap for images displayed small.
+	 * @param ?int  $max    Limit for images displayed small, from the template.
 	 * @param array $extra  Uncropped widths a template asked for (Index 'extra'): always candidates.
+	 * @param ?int  $cap    The widest width kept (Index::caps()).
 	 * @return array<int, array{w: int, h: int, file: string}> Ascending by width.
 	 */
-	public static function candidates(array $meta, array $widths, ?int $max = null, array $extra = []): array {
+	public static function candidates(array $meta, array $widths, ?int $max = null, array $extra = [], ?int $cap = null): array {
 		$fw = (int) ($meta['width'] ?? 0);
 		$fh = (int) ($meta['height'] ?? 0);
 		$file = basename((string) ($meta['file'] ?? ''));
@@ -102,7 +109,12 @@ final class Sizes {
 			}
 		}
 
-		$wanted = array_filter($widths, fn($w) => $w < $fw && $w <= Config::MAX_GENERATED_WIDTH);
+		if ($cap !== null && $cap < $fw) {
+			$proportional = array_filter($proportional, fn($c) => $c['w'] <= $cap);
+		} else {
+			$cap = null;
+		}
+		$wanted = array_filter($widths, fn($w) => $w < $fw && $w <= Config::MAX_GENERATED_WIDTH && ($cap === null || $w <= $cap));
 		$chosen = array_intersect_key($proportional, array_flip($wanted));
 		// Incomplete — uploaded before v7, or a width was just added: fill in with whatever
 		// else WordPress made, until the worker builds the rest.
@@ -114,8 +126,9 @@ final class Sizes {
 		}
 
 		$chosen = array_filter($chosen, fn($c) => $c['w'] <= Config::MAX_GENERATED_WIDTH);
-		// The full file covers high-density screens, unless it is past what is ever generated.
-		if ($fw <= Config::MAX_GENERATED_WIDTH) $chosen[$fw] = ['w' => $fw, 'h' => $fh, 'file' => $file];
+		// The full file covers high-density screens, unless it is past what is ever generated
+		// or what the image is ever shown at.
+		if ($fw <= Config::MAX_GENERATED_WIDTH && $cap === null) $chosen[$fw] = ['w' => $fw, 'h' => $fh, 'file' => $file];
 
 		ksort($chosen);
 		return self::limit(array_values($chosen), $max);
@@ -144,12 +157,14 @@ final class Sizes {
 	 * Candidates for a server-side crop, from the index the worker wrote.
 	 *
 	 * @param array<int, array{w: int, h: int, file: string}> $crops
+	 * @param ?int $cap The widest crop kept (Index::caps()).
 	 */
-	public static function crop_candidates(array $crops, array $widths, ?int $max = null): array {
+	public static function crop_candidates(array $crops, array $widths, ?int $max = null, ?int $cap = null): array {
 		$by_width = [];
 		$asked = [];
 		foreach ($crops as $c) {
 			if (empty($c['file']) || empty($c['w'])) continue;
+			if ($cap !== null && (int) $c['w'] > $cap) continue;
 			$by_width[(int) $c['w']] = ['w' => (int) $c['w'], 'h' => (int) $c['h'], 'file' => (string) $c['file']];
 			// Built because a template displays this crop small: a candidate whatever the configured widths.
 			if (!empty($c['asked'])) $asked[(int) $c['w']] = true;
@@ -182,10 +197,12 @@ final class Sizes {
 	 *
 	 * @return array<int, array{w: int, h: int}>
 	 */
-	public static function crop_targets(int $src_w, int $src_h, float $ratio, array $widths): array {
+	public static function crop_targets(int $src_w, int $src_h, float $ratio, array $widths, ?int $cap = null): array {
 		if ($src_w < 1 || $src_h < 1 || $ratio <= 0 || self::matches_ratio($src_w, $src_h, $ratio)) return [];
 
 		$widest = (int) min($src_w, floor($src_h * $ratio), Config::MAX_GENERATED_WIDTH);
+		// Past the cap Optimize set, the widest crop is the cap.
+		if ($cap !== null && $cap < $widest) $widest = $cap;
 		$targets = [];
 		foreach (array_merge($widths, [$widest]) as $w) {
 			$w = (int) $w;

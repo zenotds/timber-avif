@@ -14,6 +14,7 @@ final class Cli {
 		\WP_CLI::add_command('timber-avif purge', [self::class, 'purge']);
 		\WP_CLI::add_command('timber-avif detect', [self::class, 'detect']);
 		\WP_CLI::add_command('timber-avif clear-cache', [self::class, 'clear_cache']);
+		\WP_CLI::add_command('timber-avif optimize', [self::class, 'optimize']);
 	}
 
 	/**
@@ -93,6 +94,57 @@ final class Cli {
 		$deleted = Tools::purge();
 		Worker::hint();
 		\WP_CLI::success(sprintf('%d files deleted.', $deleted));
+	}
+
+	/**
+	 * Remove the files no template serves: widths wider than an image is ever shown at, and
+	 * files no attachment owns. Reads the theme's templates and where each image is placed,
+	 * reports, then asks before deleting anything.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--dry-run]
+	 * : Report what would go, and stop.
+	 *
+	 * [--timber-resizes]
+	 * : Also delete what Timber made next to the originals (photo-640x0-c-default.jpg, photo.webp) and an older version's copies. Timber makes again any a template still asks for.
+	 *
+	 * [--reset]
+	 * : Take every limit off instead: every width of every image is made again, in the background.
+	 *
+	 * [--yes]
+	 * : Skip the confirmation.
+	 */
+	public static function optimize(array $args = [], array $assoc = []): void {
+		if (!empty($assoc['reset'])) {
+			\WP_CLI::confirm('Take every limit off? Every width of every image is made again in the background.', $assoc);
+			\WP_CLI::success(sprintf('%d images no longer limited. Run `wp timber-avif work --all` to make their files now.', Optimize::reset()));
+			return;
+		}
+
+		Optimize::start(!empty($assoc['timber-resizes']));
+		$phase = '';
+		do {
+			$job = Optimize::analyse(30);
+			if ($job['phase'] !== $phase && $job['phase'] !== 'done') \WP_CLI::log('Reading: ' . ($phase = $job['phase']) . '…');
+		} while ($job['phase'] !== 'done');
+
+		foreach (Optimize::report($job) as $line) \WP_CLI::log($line);
+		$files = Optimize::to_delete($job);
+		if (!empty($assoc['dry-run']) || !$job['plan']) {
+			\WP_CLI::success($job['plan'] ? 'Dry run: nothing deleted.' : 'Nothing to delete.');
+			return;
+		}
+
+		// A plan without files raises or lifts the limits of an earlier run.
+		if ($files['files']) \WP_CLI::confirm(sprintf('Delete %d files (%s)?', $files['files'], size_format($files['bytes'], 1)), $assoc);
+		do {
+			$job = Optimize::apply(30);
+			if (($job['error'] ?? '') === 'widths') \WP_CLI::error('Settings → Widths changed since the analysis. Run it again.');
+			// A worker pass holds the lock; it lets go at its end.
+			if (!empty($job['busy'])) sleep(5);
+		} while (empty($job['applied']));
+		\WP_CLI::success(sprintf('%d files deleted, %s. The page cache was purged.', $job['apply']['deleted'], size_format($job['apply']['bytes'], 1)));
 	}
 
 	public static function detect(): void {

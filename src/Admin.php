@@ -15,6 +15,7 @@ final class Admin {
 		add_action('admin_post_timber_avif_tools', [self::class, 'handle_tools']);
 		add_action('wp_ajax_timber_avif_work', [self::class, 'handle_work']);
 		add_action('wp_ajax_timber_avif_status', [self::class, 'handle_status']);
+		add_action('wp_ajax_timber_avif_optimize', [self::class, 'handle_optimize']);
 		add_action('admin_enqueue_scripts', [self::class, 'enqueue']);
 		add_filter('manage_media_columns', [self::class, 'media_column']);
 		add_action('manage_media_custom_column', [self::class, 'render_media_column'], 10, 2);
@@ -55,6 +56,9 @@ final class Admin {
 				'done'       => __('Queue empty.', 'timber-avif'),
 				'failed'     => __('Request failed.', 'timber-avif'),
 				'start'      => __('Process now', 'timber-avif'),
+				'reading'    => __('Reading templates and content…', 'timber-avif'),
+				'deleting'   => __('Deleting…', 'timber-avif'),
+				'confirm'    => __('Delete these files? The page cache is purged at the end.', 'timber-avif'),
 			],
 		]) . ";\n" . (string) file_get_contents(TIMBER_AVIF_DIR . '/assets/admin.js'));
 	}
@@ -279,6 +283,7 @@ final class Admin {
 					<p class="description tavif-progress-status"></p>
 				</div>
 			</div>
+			<?php self::render_optimize(); ?>
 			<?php foreach ($tools as $key => [$title, $text, $button, $confirm]) : ?>
 				<div class="tavif-tool-card">
 					<h3><?php echo esc_html($title); ?></h3>
@@ -292,6 +297,119 @@ final class Admin {
 				</div>
 			<?php endforeach; ?>
 		</div>
+		<?php
+	}
+
+	/**
+	 * Tools → Optimize: start an analysis, see its report, apply it. Each step is a request
+	 * of its own (handle_optimize()), and the page reloads when one is done.
+	 */
+	private static function render_optimize(): void {
+		$job = Optimize::job();
+		$capped = Optimize::capped();
+		$running = $job && ($job['phase'] !== 'done' || (isset($job['apply']) && empty($job['applied'])));
+		$report = $job && $job['phase'] === 'done' && empty($job['applied']);
+		?>
+		<div class="tavif-tool-card tavif-tool-card--wide" id="tavif-optimize">
+			<h3><?php esc_html_e('Optimize', 'timber-avif'); ?></h3>
+			<p><?php esc_html_e('Deletes the widths no template shows an image at, and files no attachment owns. It reads the theme\'s templates and where each image is placed, and reports first: nothing is deleted until you confirm. An image shown wider later gets its widths back on its own.', 'timber-avif'); ?></p>
+
+			<?php if ($job && !empty($job['applied'])) : ?>
+				<p class="tavif-optimize-done"><?php printf(
+					/* translators: 1: number of files, 2: size */
+					esc_html__('%1$s files deleted, %2$s freed. The page cache was purged.', 'timber-avif'),
+					esc_html(number_format_i18n((int) $job['apply']['deleted'])),
+					esc_html(self::format_bytes((int) $job['apply']['bytes']))
+				); ?></p>
+			<?php endif; ?>
+
+			<?php if ($report) : self::render_optimize_report($job); endif; ?>
+
+			<div class="tavif-optimize-actions">
+				<?php if ($report) : ?>
+					<?php $delete = Optimize::to_delete($job); ?>
+					<button type="button" class="button button-primary<?php echo $delete['files'] ? ' tavif-danger-primary' : ''; ?>" data-tavif-optimize="apply"<?php disabled(!$delete['files'] && !$job['plan']); ?>><?php
+						/* translators: %s: size */
+						echo esc_html($delete['files'] ? sprintf(__('Delete %s', 'timber-avif'), self::format_bytes($delete['bytes'])) : __('Update the limits', 'timber-avif'));
+					?></button>
+					<?php self::tool_button('optimize_discard', __('Discard the report', 'timber-avif')); ?>
+				<?php else : ?>
+					<label class="tavif-tool-option"><input type="checkbox" id="tavif-optimize-timber" value="1" /> <?php esc_html_e('Also delete what Timber made next to the originals — resizes (photo-640x0-c-default.jpg), conversions (photo.webp) — and an older version\'s copies: Timber makes again any a template still asks for, on the first view of that page.', 'timber-avif'); ?></label>
+					<button type="button" class="button button-primary" data-tavif-optimize="<?php echo $running ? 'resume' : 'start'; ?>"><?php $running ? esc_html_e('Continue the analysis', 'timber-avif') : esc_html_e('Analyse', 'timber-avif'); ?></button>
+				<?php endif; ?>
+				<?php if ($capped) : ?>
+					<?php self::tool_button('optimize_reset', sprintf(
+						/* translators: %s: number of images */
+						_n('Remove the limit from %s image', 'Remove the limits from %s images', $capped, 'timber-avif'),
+						number_format_i18n($capped)
+					), __('Every width of these images is made again, in the background. Continue?', 'timber-avif')); ?>
+				<?php endif; ?>
+			</div>
+			<div class="tavif-progress" id="tavif-optimize-progress" hidden>
+				<div class="tavif-progress-track"><div class="tavif-progress-bar"></div></div>
+				<p class="description tavif-progress-status"></p>
+			</div>
+		</div>
+		<?php
+	}
+
+	private static function render_optimize_report(array $job): void {
+		$images = $job['images'];
+		?>
+		<table class="tavif-log-table tavif-optimize-report">
+			<thead><tr><th><?php esc_html_e('What', 'timber-avif'); ?></th><th><?php esc_html_e('Files', 'timber-avif'); ?></th><th><?php esc_html_e('Size', 'timber-avif'); ?></th></tr></thead>
+			<tbody>
+				<?php foreach (Optimize::rows($job) as $key => [$label, $files, $bytes, $deleted]) : ?>
+					<tr class="<?php echo $deleted ? '' : 'is-muted'; ?>">
+						<td><?php echo esc_html($label); ?><?php if (!$deleted) : ?> <em><?php esc_html_e('(kept)', 'timber-avif'); ?></em><?php endif; ?></td>
+						<td><?php echo esc_html(number_format_i18n($files)); ?></td>
+						<td><?php echo esc_html(self::format_bytes($bytes)); ?></td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+		<p class="description"><?php printf(
+			/* translators: 1: images, 2: limited, 3: used nowhere, 4: keeping every file */
+			esc_html__('%1$s images: %2$s limited to the widths they are shown at, %3$s used nowhere, %4$s keep every file.', 'timber-avif'),
+			esc_html(number_format_i18n($images['total'])),
+			esc_html(number_format_i18n($images['capped'])),
+			esc_html(number_format_i18n($images['unused'])),
+			esc_html(number_format_i18n(array_sum($images['kept'])))
+		); ?></p>
+		<?php if ($images['kept'] || !empty($job['unmatched']) || !empty($job['untraced'])) : ?>
+			<details class="tavif-optimize-details">
+				<summary><?php esc_html_e('Why some images keep every file', 'timber-avif'); ?></summary>
+				<ul>
+					<?php foreach ($images['kept'] as $reason => $n) : ?>
+						<li><?php echo esc_html(number_format_i18n($n) . ' — ' . (Optimize::reasons()[$reason] ?? $reason)); ?></li>
+					<?php endforeach; ?>
+				</ul>
+				<?php if (!empty($job['unmatched'])) : arsort($job['unmatched']); ?>
+					<p><?php esc_html_e('Fields holding images that no template call was traced to:', 'timber-avif'); ?></p>
+					<ul class="tavif-code-list">
+						<?php foreach (array_slice($job['unmatched'], 0, 15, true) as $place => $n) : ?><li><code><?php echo esc_html($place); ?></code> (<?php echo esc_html(number_format_i18n($n)); ?>)</li><?php endforeach; ?>
+					</ul>
+				<?php endif; ?>
+				<?php if (!empty($job['untraced'])) : ?>
+					<p><?php esc_html_e('Template calls whose image could not be followed. An image shown only there gets its widths back on the first view:', 'timber-avif'); ?></p>
+					<ul class="tavif-code-list">
+						<?php foreach (array_slice($job['untraced'], 0, 15) as $at) : ?><li><code><?php echo esc_html($at); ?></code></li><?php endforeach; ?>
+					</ul>
+				<?php endif; ?>
+			</details>
+		<?php endif; ?>
+		<?php
+	}
+
+	/** A Tools form with one button. */
+	private static function tool_button(string $action, string $label, string $confirm = ''): void {
+		?>
+		<form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+			<?php wp_nonce_field('timber_avif_tools'); ?>
+			<input type="hidden" name="action" value="timber_avif_tools" />
+			<input type="hidden" name="subaction" value="<?php echo esc_attr($action); ?>" />
+			<button type="submit" class="button"<?php if ($confirm) : ?> onclick="return confirm('<?php echo esc_js($confirm); ?>');"<?php endif; ?>><?php echo esc_html($label); ?></button>
+		</form>
 		<?php
 	}
 
@@ -372,6 +490,10 @@ final class Admin {
 		foreach ($notices as $key => $text) {
 			if (!empty($_GET[$key])) echo '<div class="notice notice-success is-dismissible"><p>' . esc_html($text) . '</p></div>';
 		}
+		if (isset($_GET['unlimited'])) {
+			/* translators: %d: number of images */
+			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html(sprintf(__('%d images no longer limited: their widths are made again in the background.', 'timber-avif'), (int) $_GET['unlimited'])) . '</p></div>';
+		}
 		if (isset($_GET['purged'])) {
 			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html(sprintf(__('%d files deleted.', 'timber-avif'), (int) $_GET['purged'])) . '</p></div>';
 		}
@@ -442,6 +564,12 @@ final class Admin {
 			case 'purge':
 				$args['purged'] = Tools::purge();
 				break;
+			case 'optimize_discard':
+				Optimize::discard();
+				break;
+			case 'optimize_reset':
+				$args['unlimited'] = Optimize::reset();
+				break;
 		}
 
 		delete_transient(self::STATS);
@@ -488,6 +616,24 @@ final class Admin {
 		delete_transient(self::STATS);
 		if ($result['error']) wp_send_json_error($result['error']);
 		wp_send_json_success($result);
+	}
+
+	/** One step of Optimize: the analysis, or the deletion once the report is confirmed. */
+	public static function handle_optimize(): void {
+		check_ajax_referer('timber_avif_work', 'nonce');
+		if (!current_user_can('manage_options')) wp_send_json_error(__('Insufficient permissions', 'timber-avif'), 403);
+
+		$step = sanitize_key($_POST['step'] ?? '');
+		if ($step === 'start') Optimize::start(!empty($_POST['timber']));
+		$job = $step === 'apply' ? Optimize::apply(Worker::ADMIN_BUDGET) : Optimize::analyse(Worker::ADMIN_BUDGET);
+		if (($job['error'] ?? '') === 'widths') wp_send_json_error(__('Settings → Widths changed since the analysis: discard the report and run it again.', 'timber-avif'));
+		delete_transient(self::STATS);
+
+		wp_send_json_success([
+			'done'     => $step === 'apply' ? !empty($job['applied']) : $job['phase'] === 'done',
+			'busy'     => !empty($job['busy']),
+			'progress' => Optimize::progress($job),
+		]);
 	}
 
 	/** How far the queue is, for the status cards while it is being worked through. */

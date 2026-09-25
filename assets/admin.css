@@ -55,6 +55,22 @@
 .tavif-tool-card p { color: #6b7280; font-size: 13px; margin: 0 0 18px; line-height: 1.5; flex: 1; }
 .tavif-tool-card .button { align-self: flex-start; }
 .tavif-danger.button { color: #b91c1c; }
+.tavif-tool-card--wide { grid-column: 1 / -1; }
+.tavif-tool-card--wide > p { flex: 0 0 auto; max-width: 72ch; }
+.tavif-optimize-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.tavif-optimize-actions form { margin: 0; }
+.tavif-optimize-actions .tavif-tool-option { flex-basis: 100%; margin: 0 0 4px; }
+.tavif-optimize-report { margin: 0 0 12px; background: #fff; }
+.tavif-optimize-report td:nth-child(n+2), .tavif-optimize-report th:nth-child(n+2) { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tavif-optimize-report tr.is-muted td { color: #9ca3af; }
+.tavif-optimize-done { color: #047857 !important; font-weight: 600; }
+.tavif-optimize-details { margin: 0 0 16px; font-size: 13px; color: #4b5563; }
+.tavif-optimize-details summary { cursor: pointer; color: #2271b1; }
+.tavif-optimize-details ul { margin: 8px 0 8px 18px; list-style: disc; }
+.tavif-optimize-details p { margin: 10px 0 4px; flex: none; }
+.tavif-code-list code { font-size: 12px; }
+.wp-core-ui .button-primary.tavif-danger-primary { background: #b91c1c; border-color: #991b1b; }
+.wp-core-ui .button-primary.tavif-danger-primary:hover { background: #991b1b; }
 .tavif-progress { margin-top: 14px; }
 .tavif-progress-track { height: 22px; background: #f3f4f6; border-radius: 4px; overflow: hidden; margin-bottom: 6px; }
 .tavif-progress-bar { height: 100%; width: 0; background: linear-gradient(90deg, #10b981, #34d399); border-radius: 4px; transition: width .3s; }

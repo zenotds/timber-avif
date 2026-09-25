@@ -311,14 +311,20 @@ final class Worker {
 		$entries = (array) ($index[$format] ?? []);
 		$extra = (array) ($index['extra'] ?? []);
 
-		$sets = [Renderer::modern_srcset(Sizes::candidates($meta, Config::widths(), null, $extra), $entries, ''), array_column($extra, 'w')];
+		$caps = Index::caps($id);
+
+		$sets = [Renderer::modern_srcset(Sizes::candidates($meta, Config::widths(), null, $extra, $caps[''] ?? null), $entries, ''), array_column($extra, 'w')];
 		foreach ((array) ($index['crops'] ?? []) as $ratio => $crops) {
-			$sets[$ratio] = [array_column($crops, 'w'), Renderer::modern_srcset(Sizes::crop_candidates($crops, Config::widths()), $entries, '')];
+			$sets[$ratio] = [array_column($crops, 'w'), Renderer::modern_srcset(Sizes::crop_candidates($crops, Config::widths(), null, $caps[$ratio] ?? null), $entries, '')];
 		}
 		return md5(serialize($sets + ['anim' => !empty($index['anim'])]));
 	}
 
 	private static function work_on(int $id, float $deadline): bool {
+		// First, whatever else happens to this pass: needs left unread would keep the image
+		// pending, and the worker coming back to it, forever.
+		$caps = self::raise_caps($id, (array) wp_get_attachment_metadata($id));
+
 		$index = Index::get($id);
 		// The file was replaced since its copies were made — in place, or by an edit in the
 		// media modal: they show the old picture.
@@ -358,10 +364,10 @@ final class Worker {
 		}
 		unset($index['anim']);
 
-		$meta = Sizes::ensure($id, $meta);
+		$meta = Sizes::ensure($id, $meta, $caps[''] ?? null);
 		$dir = dirname($attached);
 		$key = Config::encoding_key();
-		$targets = self::targets($id, $meta, $mime);
+		$targets = self::targets($id, $meta, $mime, $caps);
 		[$shared, $twin_entries] = self::twins($id, $format, $attached);
 
 		$entries = (array) ($index[$format] ?? []);
@@ -460,6 +466,8 @@ final class Worker {
 		Index::put($id, $index);
 		update_post_meta($id, Index::STAMP, Config::fingerprint());
 		delete_post_meta($id, Index::ATTEMPTS);
+		// A render found the image too small while this pass ran: still pending, for the next one.
+		if (get_post_meta($id, Index::NEED, false)) delete_post_meta($id, Index::STAMP);
 
 		if ($retry) update_post_meta($id, Index::RETRY, time() + self::RETRY_AFTER);
 		else delete_post_meta($id, Index::RETRY);
@@ -494,18 +502,68 @@ final class Worker {
 	}
 
 	/**
-	 * Files to keep a modern copy of: the same candidates the renderer picks from, plus the
-	 * crops and widths templates asked for (Index::wants()).
+	 * A render that showed a capped image wider than its cap (Index::need()) raises the cap:
+	 * to the configured width that covers it, or off when no width below the image does.
 	 *
+	 * @return array<string, int> The caps now in effect.
+	 */
+	private static function raise_caps(int $id, array $meta): array {
+		$caps = Index::caps($id);
+		$needs = Index::needs($id);
+		if (!$needs) return $caps;
+		// The rows read here, and only those: one a render adds meanwhile waits for the next pass.
+		foreach ($needs as $need) delete_post_meta($id, Index::NEED, $need['spec']);
+
+		$fw = (int) ($meta['width'] ?? 0);
+		$fh = (int) ($meta['height'] ?? 0);
+		foreach ($needs as $need) {
+			$ratio = $need['ratio'];
+			if (!isset($caps[$ratio])) continue;
+			// Without dimensions nothing can be worked out: every width it is.
+			if (!$fw || !$fh) {
+				unset($caps[$ratio]);
+				continue;
+			}
+			// A crop's widest is what the source allows at that ratio, and may equal a width.
+			$parsed = $ratio === '' ? null : Renderer::parse_ratio($ratio);
+			$full = $parsed ? (int) min($fw, floor($fh * $parsed['value']), Config::MAX_GENERATED_WIDTH) + 1 : $fw;
+			$covering = Need::covering($need['pixels'], Config::widths(), $full);
+			if ($covering === null) unset($caps[$ratio]);
+			else $caps[$ratio] = max($caps[$ratio], $covering);
+		}
+		Index::put_caps($id, $caps);
+
+		// The other languages of the file show the same files: raised with it, and queued to
+		// list the widths in their own metadata.
+		foreach (Index::twins($id) as $twin) {
+			$theirs = Index::caps($twin);
+			$raised = $theirs;
+			foreach ($theirs as $ratio => $cap) {
+				if (!isset($caps[$ratio])) unset($raised[$ratio]);
+				else $raised[$ratio] = max($cap, $caps[$ratio]);
+			}
+			if ($raised !== $theirs) {
+				Index::put_caps($twin, $raised);
+				self::stale($twin);
+			}
+		}
+		return $caps;
+	}
+
+	/**
+	 * Files to keep a modern copy of: the same candidates the renderer picks from, plus the
+	 * crops and widths templates asked for (Index::wants()), none past the caps.
+	 *
+	 * @param array<string, int> $caps Index::caps()
 	 * @return array<int, array{file: string, w: int, h: int, crop: bool, make: bool, ratio: string}>
 	 */
-	private static function targets(int $id, array $meta, string $mime): array {
+	private static function targets(int $id, array $meta, string $mime, array $caps = []): array {
 		$fw = (int) $meta['width'];
 		$fh = (int) $meta['height'];
 		$targets = [];
 		$widths = [];
 
-		foreach (Sizes::candidates($meta, Config::widths()) as $c) {
+		foreach (Sizes::candidates($meta, Config::widths(), null, [], $caps[''] ?? null) as $c) {
 			$full = $c['w'] === $fw;
 			// Width-only, like the registered size that made the fallback: same dimensions, same rounding.
 			$targets[] = ['file' => $c['file'], 'w' => $c['w'], 'h' => $full ? $fh : 0, 'crop' => false, 'make' => false, 'ratio' => ''];
@@ -535,7 +593,7 @@ final class Worker {
 		foreach ($ratios as $key => $extra) {
 			$ratio = Renderer::parse_ratio($key);
 			if (!$ratio) continue;
-			foreach (Sizes::crop_targets($fw, $fh, $ratio['value'], array_merge(Config::widths(), $extra)) as $t) {
+			foreach (Sizes::crop_targets($fw, $fh, $ratio['value'], array_merge(Config::widths(), $extra), $caps[$ratio['key']] ?? null) as $t) {
 				$targets[] = ['file' => "{$stem}-{$t['w']}x{$t['h']}-tavif.{$ext}", 'w' => $t['w'], 'h' => $t['h'], 'crop' => true, 'make' => true, 'ratio' => $ratio['key'], 'asked' => in_array($t['w'], $extra, true)];
 			}
 		}

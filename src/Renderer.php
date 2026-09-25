@@ -17,7 +17,8 @@ final class Renderer {
 	 *
 	 * @param mixed $image Timber\Image, attachment ID, WP_Post, ACF image array, or a URL.
 	 * @param array $opts  widths (int[]), max (int), ratio ('16/9'|float), disclosure (string|false),
-	 *                     atf (bool: the macro gives this image fetchpriority="high")
+	 *                     atf (bool: the macro gives this image fetchpriority="high"),
+	 *                     sizes (string: how wide it is shown, for an image Optimize capped)
 	 */
 	public static function sources($image, array $opts = []): array {
 		$empty = ['ok' => false, 'src' => '', 'srcset' => '', 'width' => null, 'height' => null, 'modern' => null, 'disclosure' => ''];
@@ -56,6 +57,9 @@ final class Renderer {
 		if ($ratio && Sizes::matches_ratio($fw, $fh, $ratio['value'])) $ratio = null;
 
 		$candidates = self::candidates($id, $meta, $index, $widths, $max, $ratio);
+		// A call that does not say how wide it shows the image — no `sizes`, no `max` — may show
+		// it at any width, as Optimize reads it too.
+		self::check_cap($id, $ratio['key'] ?? '', Need::pixels(isset($opts['sizes']) ? (string) $opts['sizes'] : null, $max) ?? Need::WHOLE);
 		if (!$candidates) {
 			return array_merge($empty, ['ok' => true, 'src' => $full_url, 'width' => $fw, 'height' => $fh, 'disclosure' => $disclosure]);
 		}
@@ -114,6 +118,7 @@ final class Renderer {
 		if ($ratio && Sizes::matches_ratio((int) $meta['width'], (int) ($meta['height'] ?? 0), $ratio['value'])) $ratio = null;
 
 		$candidates = self::candidates($id, $meta, $index, Config::widths(), $width, $ratio);
+		self::check_cap($id, $ratio['key'] ?? '', $width ?: Need::WHOLE);
 		if (!$candidates) return $full_url;
 
 		$pick = end($candidates);
@@ -198,17 +203,29 @@ final class Renderer {
 	}
 
 	private static function candidates(int $id, $meta, array $index, array $widths, ?int $max, ?array $ratio): array {
+		$caps = Index::caps($id);
 		if ($ratio) {
 			$crops = (array) ($index['crops'][$ratio['key']] ?? []);
-			if ($crops) return self::with_small($id, $ratio['key'], Sizes::crop_candidates($crops, $widths, $max), $max);
+			if ($crops) return self::with_small($id, $ratio['key'], Sizes::crop_candidates($crops, $widths, $max, $caps[$ratio['key']] ?? null), $max);
 			// First time a template asks for this crop: one meta row, then the worker builds it.
 			Index::want($id, $ratio['key']);
 			if ($max && $max < min(Config::widths() ?: [PHP_INT_MAX])) Index::want($id, $ratio['key'], $max);
 			// Meanwhile the uncropped files stand in, as they are: asking for a small uncropped
 			// width here would build a file nobody serves once the crop exists.
-			return Sizes::candidates((array) $meta, $widths, $max, (array) ($index['extra'] ?? []));
+			return Sizes::candidates((array) $meta, $widths, $max, (array) ($index['extra'] ?? []), $caps[''] ?? null);
 		}
-		return self::with_small($id, '', Sizes::candidates((array) $meta, $widths, $max, (array) ($index['extra'] ?? [])), $max);
+		return self::with_small($id, '', Sizes::candidates((array) $meta, $widths, $max, (array) ($index['extra'] ?? []), $caps[''] ?? null), $max);
+	}
+
+	/**
+	 * An image Optimize capped, shown here wider than the cap — reused in a hero after a card,
+	 * or a template redesigned: the need is recorded once, and the worker builds the widths
+	 * up to it. Meanwhile the capped set is served, slightly upscaled, still in the modern
+	 * format. For an image with no cap this costs one array lookup.
+	 */
+	private static function check_cap(int $id, string $ratio, int $pixels): void {
+		$caps = Index::caps($id);
+		if (isset($caps[$ratio]) && $pixels > $caps[$ratio]) Index::need($id, $ratio, $pixels);
 	}
 
 	/**

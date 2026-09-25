@@ -47,6 +47,47 @@
 	}
 	if (polling) setTimeout(poll, 5000);
 
+	// Tools → Optimize: one step per request, the page reloads to show what is next.
+	var optimize = document.getElementById('tavif-optimize');
+	if (optimize) {
+		var oWrap = document.getElementById('tavif-optimize-progress');
+		var oBar = oWrap.querySelector('.tavif-progress-bar');
+		var oStatus = oWrap.querySelector('.tavif-progress-status');
+
+		var step = function (name, extra) {
+			post('timber_avif_optimize', Object.assign({ step: name }, extra || {}))
+				.then(function (r) {
+					if (!r.success) {
+						oStatus.textContent = r.data || t.failed;
+						optimize.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+						return;
+					}
+					oBar.style.width = Math.round(r.data.progress * 100) + '%';
+					if (r.data.done) return window.location.reload();
+					var next = name === 'apply' ? 'apply' : 'analyse';
+					if (r.data.busy) {
+						oStatus.textContent = t.waiting;
+						return setTimeout(function () { step(next); }, 3000);
+					}
+					step(next);
+				})
+				.catch(function () { oStatus.textContent = t.failed; });
+		};
+
+		optimize.querySelectorAll('[data-tavif-optimize]').forEach(function (b) {
+			b.addEventListener('click', function () {
+				var action = b.getAttribute('data-tavif-optimize');
+				if (action === 'apply' && !window.confirm(t.confirm)) return;
+				optimize.querySelectorAll('button').forEach(function (other) { other.disabled = true; });
+				oWrap.hidden = false;
+				oStatus.textContent = action === 'apply' ? t.deleting : t.reading;
+				var timber = document.getElementById('tavif-optimize-timber');
+				if (action === 'start') step('start', { timber: timber && timber.checked ? 1 : 0 });
+				else step(action === 'apply' ? 'apply' : 'analyse');
+			});
+		});
+	}
+
 	// Tools → Queue → Process now: one worker pass per request until the queue is empty.
 	if (!button) return;
 

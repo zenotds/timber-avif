@@ -28,6 +28,8 @@ final class Index {
 	const ATTEMPTS = '_tavif_attempts'; // passes started and not finished: a crash counter
 	const ISSUE    = '_tavif_issue';    // last problem worth showing in the admin
 	const WANT     = '_tavif_want';     // one row per crop or width a template asked for
+	const CAP      = '_tavif_cap';      // the widest width kept, per ratio ('' uncropped): set by Optimize
+	const NEED     = '_tavif_need';     // one row per render that showed a capped image wider: 'ratio@pixels'
 
 	public static function get(int $id): array {
 		$index = get_post_meta($id, self::META, true);
@@ -130,6 +132,52 @@ final class Index {
 		if ($spec === '' || in_array($spec, array_map('strval', (array) get_post_meta($id, self::WANT, false)), true)) return;
 		add_post_meta($id, self::WANT, $spec);
 		Worker::stale($id);
+	}
+
+	/**
+	 * The widest configured width kept for each ratio of this image ('' for the uncropped
+	 * set), where Optimize found how the image is used. A ratio without one keeps them all.
+	 * Kept apart from the index, like what templates asked for: *Delete conversions* and a
+	 * replaced file start the copies again, and how the image is shown has not changed.
+	 *
+	 * @return array<string, int>
+	 */
+	public static function caps(int $id): array {
+		$caps = get_post_meta($id, self::CAP, true);
+		return is_array($caps) ? array_map('intval', $caps) : [];
+	}
+
+	/** @param array<string, int> $caps */
+	public static function put_caps(int $id, array $caps): void {
+		if ($caps) update_post_meta($id, self::CAP, $caps);
+		else delete_post_meta($id, self::CAP);
+	}
+
+	/**
+	 * A render showed a capped image wider than its cap: one row, the first time, and the
+	 * worker builds the widths up to it (Worker::raise_caps()). $pixels is Need::WHOLE when the
+	 * call needs every width.
+	 */
+	public static function need(int $id, string $ratio, int $pixels): void {
+		static $seen = [];
+		$pixels = min($pixels, Need::WHOLE);
+		if (isset($seen["$id|$ratio"]) && $seen["$id|$ratio"] >= $pixels) return;
+		$seen["$id|$ratio"] = $pixels;
+		foreach (self::needs($id) as $need) {
+			if ($need['ratio'] === $ratio && $need['pixels'] >= $pixels) return;
+		}
+		add_post_meta($id, self::NEED, $ratio . '@' . $pixels);
+		Worker::stale($id);
+	}
+
+	/** @return array<int, array{ratio: string, pixels: int, spec: string}> */
+	public static function needs(int $id): array {
+		$needs = [];
+		foreach ((array) get_post_meta($id, self::NEED, false) as $spec) {
+			[$ratio, $pixels] = array_pad(explode('@', (string) $spec, 2), 2, '0');
+			$needs[] = ['ratio' => $ratio, 'pixels' => (int) $pixels, 'spec' => (string) $spec];
+		}
+		return $needs;
 	}
 
 	/**

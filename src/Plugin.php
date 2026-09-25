@@ -6,7 +6,7 @@ namespace TimberAVIF;
  * Wiring.
  */
 final class Plugin {
-	const VERSION = '7.0.5';
+	const VERSION = '7.1.0';
 	const VERSION_OPTION = 'timber_avif_version';
 
 	private static bool $loaded = false;

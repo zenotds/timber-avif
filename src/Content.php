@@ -24,9 +24,6 @@ final class Content {
 		// cropped sub-size (a thumbnail, a theme's square) would switch aspect ratio in AVIF.
 		if (!Sizes::is_proportional((array) wp_get_attachment_metadata($id), wp_basename((string) wp_parse_url($src[1], PHP_URL_PATH)))) return $html;
 
-		$data = Renderer::sources($id);
-		if (empty($data['modern'])) return $html;
-
 		if (preg_match('/\ssizes="([^"]*)"/', $html, $m)) {
 			$sizes = $m[1];
 		} else {
@@ -34,6 +31,9 @@ final class Content {
 			$w = preg_match('/\swidth="(\d+)"/', $html, $m) ? (int) $m[1] : 0;
 			$sizes = $w ? "(max-width: {$w}px) 100vw, {$w}px" : '100vw';
 		}
+
+		$data = Renderer::sources($id, ['sizes' => $sizes]);
+		if (empty($data['modern'])) return $html;
 
 		// display: contents, so the wrapper makes no box: margins, floats and align* classes on
 		// the <img> behave as they did. Inline, because no stylesheet of ours loads on the front end.

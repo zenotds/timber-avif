@@ -1,66 +1,97 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: Timber AVIF 6.1.3\n"
+"Project-Id-Version: Timber AVIF 7.1.0\n"
 "Report-Msgid-Bugs-To: https://github.com/zenotds/timber-avif/issues\n"
-"POT-Creation-Date: 2026-09-24T12:34:28+00:00\n"
-"PO-Revision-Date: 2026-09-18\n"
+"POT-Creation-Date: 2026-09-25T11:50:37+00:00\n"
+"PO-Revision-Date: 2026-09-25\n"
 "Language: it_IT\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: src/Admin.php:50
+#: src/Admin.php:52
 msgid "Processing…"
 msgstr "Elaborazione…"
 
-#: src/Admin.php:51
+#: src/Admin.php:53
 msgid "Another worker is running, waiting…"
 msgstr "Un'altra elaborazione è in corso, in attesa…"
 
 #. translators: %d: number of images
-#: src/Admin.php:53
+#: src/Admin.php:55
 #, php-format
 msgid "%d remaining"
 msgstr "%d rimanenti"
 
-#: src/Admin.php:54
+#: src/Admin.php:56
 msgid "Queue empty."
 msgstr "Coda vuota."
 
-#: src/Admin.php:55
+#: src/Admin.php:57
 msgid "Request failed."
 msgstr "Richiesta non riuscita."
 
-#: src/Admin.php:56 src/Admin.php:262
+#: src/Admin.php:58 src/Admin.php:280
 msgid "Process now"
 msgstr "Elabora ora"
 
-#: src/Admin.php:71
+#: src/Admin.php:59
+msgid "Reading templates and content…"
+msgstr "Lettura di template e contenuti…"
+
+#: src/Admin.php:60
+msgid "Deleting…"
+msgstr "Eliminazione…"
+
+#: src/Admin.php:61
+msgid "Delete these files? The page cache is purged at the end."
+msgstr "Eliminare questi file? Alla fine la cache delle pagine viene svuotata."
+
+#: src/Admin.php:76
 msgid "Settings"
 msgstr "Impostazioni"
 
-#: src/Admin.php:72
+#: src/Admin.php:77
 msgid "Tools"
 msgstr "Strumenti"
 
-#: src/Admin.php:73
+#: src/Admin.php:78
 msgid "Issues"
 msgstr "Problemi"
 
-#: src/Admin.php:110
+#: src/Admin.php:136
+msgid ""
+"This server cannot reach itself (a loopback request never arrived: HTTP "
+"authentication, or a host that blocks them), so the queue advances with "
+"visits and admin requests. Tools → Process now empties it from this browser."
+msgstr ""
+"Il server non riesce a raggiungere sé stesso (una richiesta di loopback non "
+"è mai arrivata: autenticazione HTTP, o un hosting che le blocca), quindi la "
+"coda avanza con le visite e le richieste dell'admin. Strumenti → Elabora ora "
+"la svuota da questo browser."
+
+#: src/Admin.php:137
+msgid ""
+"Converted in the background: each pass starts the next one until the queue "
+"is empty. Tools → Process now does it from this browser instead."
+msgstr ""
+"Convertita in background: ogni passata avvia la successiva finché la coda è "
+"vuota. Strumenti → Elabora ora lo fa invece da questo browser."
+
+#: src/Admin.php:141
 msgid "Served format"
 msgstr "Formato servito"
 
-#: src/Admin.php:110 src/Admin.php:505
+#: src/Admin.php:141 src/Admin.php:693
 msgid "Original"
 msgstr "Originale"
 
-#: src/Admin.php:111
+#: src/Admin.php:142
 msgid "Engine"
 msgstr "Motore"
 
-#: src/Admin.php:112
+#: src/Admin.php:143
 msgid ""
 "GD keeps no colour profile: photos in Display P3 or Adobe RGB change colour. "
 "Enable Imagick on the server."
@@ -68,79 +99,71 @@ msgstr ""
 "GD non conserva il profilo colore: le foto in Display P3 o Adobe RGB "
 "cambiano colore. Attiva Imagick sul server."
 
-#: src/Admin.php:113
+#: src/Admin.php:144
 msgid "Library"
 msgstr "Libreria"
 
-#: src/Admin.php:113
+#: src/Admin.php:144
 #, php-format
 msgid "%1$s of %2$s ready"
 msgstr "%1$s di %2$s pronte"
 
-#: src/Admin.php:114 src/Admin.php:260
+#: src/Admin.php:145 src/Admin.php:278
 msgid "Queue"
 msgstr "Coda"
 
-#: src/Admin.php:114
+#: src/Admin.php:145
 #, php-format
 msgid "%s pending"
 msgid_plural "%s pending"
 msgstr[0] "%s in attesa"
 msgstr[1] "%s in attesa"
 
-#: src/Admin.php:114
+#: src/Admin.php:145
 msgid "Empty"
 msgstr "Vuota"
 
-#: src/Admin.php:115
-msgid ""
-"Converted in the background by WP-Cron and after admin requests. Tools → "
-"Process now empties it right away."
-msgstr ""
-"Convertite in background da WP-Cron e dopo le richieste in bacheca. "
-"Strumenti → Elabora ora la svuota subito."
-
-#: src/Admin.php:118
+#: src/Admin.php:148
 msgid "Saved"
 msgstr "Risparmio"
 
-#: src/Admin.php:119
+#: src/Admin.php:149
 #, php-format
 msgid ""
 "%1$s converted files weigh %2$s less than the files they replace (%3$d%%)."
 msgstr ""
 "%1$s file convertiti pesano %2$s in meno dei file che sostituiscono (%3$d%%)."
 
-#: src/Admin.php:140
+#: src/Admin.php:160
 #, php-format
 msgid "default %s"
 msgstr "predefinito %s"
 
-#: src/Admin.php:140
+#: src/Admin.php:160
 msgid "on"
 msgstr "attivo"
 
-#: src/Admin.php:140
+#: src/Admin.php:160
 msgid "off"
 msgstr "disattivo"
 
-#: src/Admin.php:147
+#: src/Admin.php:167
 msgid "Format and quality"
 msgstr "Formato e qualità"
 
-#: src/Admin.php:150
+#: src/Admin.php:170
 msgid "Format"
 msgstr "Formato"
 
-#: src/Admin.php:153
+#: src/Admin.php:173
 msgid "Auto"
 msgstr "Auto"
 
-#: src/Admin.php:153
+#: src/Admin.php:173
 msgid "None"
 msgstr "Nessuno"
 
-#: src/Admin.php:157
+#: src/Admin.php:177
 msgid ""
 "Served instead of the original, which stays as a fallback. Auto picks AVIF "
 "when the server can encode it, WebP otherwise."
@@ -148,7 +171,7 @@ msgstr ""
 "Servito al posto dell'originale, che resta come riserva. Auto sceglie AVIF "
 "quando il server sa generarlo, altrimenti WebP."
 
-#: src/Admin.php:173
+#: src/Admin.php:193
 msgid ""
 "Quality scales are not comparable across formats: AVIF 75 already matches "
 "JPEG 95. The JPEG is only the fallback, for browsers without the modern "
@@ -161,11 +184,11 @@ msgstr ""
 "background; i file attuali restano serviti finché ognuno non viene "
 "sostituito."
 
-#: src/Admin.php:177
+#: src/Admin.php:197
 msgid "Widths"
 msgstr "Larghezze"
 
-#: src/Admin.php:178
+#: src/Admin.php:198
 msgid ""
 "The sizes every image is generated in. The browser picks the one that fits "
 "the screen."
@@ -173,11 +196,11 @@ msgstr ""
 "Le misure in cui ogni immagine viene generata. Il browser sceglie da sé la "
 "più adatta allo schermo."
 
-#: src/Admin.php:181
+#: src/Admin.php:201
 msgid "Sizes"
 msgstr "Misure"
 
-#: src/Admin.php:184
+#: src/Admin.php:204
 msgid ""
 "Comma-separated. Each size is one more file per image, built at upload. A "
 "size added here is built for the existing library in the background."
@@ -186,21 +209,21 @@ msgstr ""
 "caricamento. Una misura aggiunta qui viene generata in background per la "
 "libreria esistente."
 
-#: src/Admin.php:190
+#: src/Admin.php:210
 msgid "Content"
 msgstr "Contenuti"
 
-#: src/Admin.php:193
+#: src/Admin.php:213
 msgid "Editor images"
 msgstr "Immagini dell'editor"
 
-#: src/Admin.php:199
+#: src/Admin.php:219
 msgid ""
 "Serve images in post content and WYSIWYG fields in the modern format too"
 msgstr ""
 "Servi nel formato moderno anche le immagini nei contenuti e nei campi WYSIWYG"
 
-#: src/Admin.php:201
+#: src/Admin.php:221
 msgid ""
 "The <img> WordPress writes is wrapped in a <picture> that makes no box of "
 "its own, so the layout does not change. Cropped sizes such as thumbnails are "
@@ -210,23 +233,23 @@ msgstr ""
 "box proprio, quindi il layout non cambia. Le misure ritagliate, come le "
 "miniature, restano come sono."
 
-#: src/Admin.php:207
+#: src/Admin.php:227
 msgid "Limits"
 msgstr "Limiti"
 
-#: src/Admin.php:210
+#: src/Admin.php:230
 msgid "Upload"
 msgstr "Caricamento"
 
-#: src/Admin.php:213
+#: src/Admin.php:233
 msgid "Wider images are scaled down to this size on arrival."
 msgstr "Le immagini più larghe vengono ridotte a questa misura."
 
-#: src/Admin.php:218
+#: src/Admin.php:238
 msgid "Conversion"
 msgstr "Conversione"
 
-#: src/Admin.php:222
+#: src/Admin.php:242
 msgid ""
 "Conversions start from the full-size file. Past either value they start from "
 "the widest generated size instead, so a large PNG, which WordPress does not "
@@ -237,16 +260,16 @@ msgstr ""
 "che WordPress non riduce, ottiene la sua copia moderna senza esaurire la "
 "memoria del server."
 
-#: src/Admin.php:227
+#: src/Admin.php:247
 msgid "Discard"
 msgstr "Scarto"
 
-#: src/Admin.php:233
+#: src/Admin.php:253
 msgid ""
 "Discard the converted file when it weighs meaningfully more than the original"
 msgstr "Scarta il file convertito quando pesa sensibilmente più dell'originale"
 
-#: src/Admin.php:235
+#: src/Admin.php:255
 msgid ""
 "A few KB over is kept — the better format is worth it. Discarded past +10% "
 "and +4 KB, or past +50 KB whatever the ratio."
@@ -254,7 +277,7 @@ msgstr ""
 "Qualche KB in più si tiene: il formato migliore vale la differenza. Si "
 "scarta oltre +10% e +4 KB, o oltre +50 KB a prescindere dal rapporto."
 
-#: src/Admin.php:240
+#: src/Admin.php:260
 msgid ""
 "Only values that differ from the default are saved, so the others follow the "
 "defaults of future versions."
@@ -262,23 +285,23 @@ msgstr ""
 "Si salvano solo i valori diversi dal predefinito: gli altri seguono i "
 "predefiniti delle versioni future."
 
-#: src/Admin.php:242
+#: src/Admin.php:262
 msgid "Save"
 msgstr "Salva"
 
-#: src/Admin.php:243
+#: src/Admin.php:263
 msgid "Reset to defaults"
 msgstr "Ripristina i predefiniti"
 
-#: src/Admin.php:243
+#: src/Admin.php:263
 msgid "Reset every setting to its default?"
 msgstr "Riportare tutte le impostazioni al valore predefinito?"
 
-#: src/Admin.php:251
+#: src/Admin.php:271
 msgid "Rebuild everything"
 msgstr "Rigenera tutto"
 
-#: src/Admin.php:251
+#: src/Admin.php:271
 msgid ""
 "Encode every image again with the current settings — after upgrading the "
 "server's image libraries, for instance. The current files are served until "
@@ -288,19 +311,19 @@ msgstr ""
 "aggiornamento delle librerie grafiche del server. I file attuali restano "
 "serviti finché ognuno non viene sostituito."
 
-#: src/Admin.php:251
+#: src/Admin.php:271
 msgid "Rebuild"
 msgstr "Rigenera"
 
-#: src/Admin.php:251
+#: src/Admin.php:271
 msgid "Re-encode the whole library in the background?"
 msgstr "Riconvertire tutta la libreria in background?"
 
-#: src/Admin.php:252
+#: src/Admin.php:272
 msgid "Clear cache"
 msgstr "Svuota la cache"
 
-#: src/Admin.php:252
+#: src/Admin.php:272
 msgid ""
 "Detect the conversion engines available on this server again, and retry the "
 "conversions that failed."
@@ -308,15 +331,15 @@ msgstr ""
 "Rileva di nuovo i motori di conversione disponibili su questo server e "
 "riprova le conversioni non riuscite."
 
-#: src/Admin.php:252
+#: src/Admin.php:272
 msgid "Clear"
 msgstr "Svuota"
 
-#: src/Admin.php:253
+#: src/Admin.php:273
 msgid "Delete conversions"
 msgstr "Elimina le conversioni"
 
-#: src/Admin.php:253
+#: src/Admin.php:273
 msgid ""
 "Deletes every AVIF and WebP file and every crop Timber AVIF made. Originals "
 "are untouched; the files are rebuilt in the background, and until then the "
@@ -326,24 +349,141 @@ msgstr ""
 "Gli originali non vengono toccati; i file si rigenerano in background e nel "
 "frattempo si servono gli originali."
 
-#: src/Admin.php:253
+#: src/Admin.php:273
 msgid "Delete"
 msgstr "Elimina"
 
-#: src/Admin.php:253
+#: src/Admin.php:273
 msgid "Delete every generated AVIF and WebP file?"
 msgstr "Eliminare tutti i file AVIF e WebP generati?"
 
-#: src/Admin.php:261
+#: src/Admin.php:279
 #, php-format
 msgid "%s images waiting to be converted."
 msgstr "%s immagini in attesa di conversione."
 
-#: src/Admin.php:300
+#: src/Admin.php:314
+msgid "Optimize"
+msgstr "Ottimizza"
+
+#: src/Admin.php:315
+msgid ""
+"Deletes the widths no template shows an image at, and files no attachment "
+"owns. It reads the theme's templates and where each image is placed, and "
+"reports first: nothing is deleted until you confirm. An image shown wider "
+"later gets its widths back on its own."
+msgstr ""
+"Elimina le larghezze a cui nessun template mostra un'immagine e i file che "
+"nessun allegato possiede. Legge i template del tema e dove è inserita ogni "
+"immagine, e prima presenta un resoconto: non si elimina nulla finché non "
+"confermi. Un'immagine mostrata più larga in seguito riavrà da sola le sue "
+"larghezze."
+
+#. translators: 1: number of files, 2: size
+#: src/Admin.php:320
+#, php-format
+msgid "%1$s files deleted, %2$s freed. The page cache was purged."
+msgstr ""
+"%1$s file eliminati, %2$s liberati. La cache delle pagine è stata svuotata."
+
+#. translators: %s: size
+#: src/Admin.php:333
+#, php-format
+msgid "Delete %s"
+msgstr "Elimina %s"
+
+#. translators: %s: size
+#: src/Admin.php:333
+msgid "Update the limits"
+msgstr "Aggiorna i limiti"
+
+#: src/Admin.php:335
+msgid "Discard the report"
+msgstr "Scarta il resoconto"
+
+#: src/Admin.php:337
+msgid ""
+"Also delete what Timber made next to the originals — resizes (photo-640x0-c-"
+"default.jpg), conversions (photo.webp) — and an older version's copies: "
+"Timber makes again any a template still asks for, on the first view of that "
+"page."
+msgstr ""
+"Elimina anche ciò che Timber ha creato accanto agli originali — "
+"ridimensionamenti (photo-640x0-c-default.jpg), conversioni (photo.webp) — e "
+"le copie della versione precedente: Timber rifà quelli che un template usa "
+"ancora, alla prima visita di quella pagina."
+
+#: src/Admin.php:338
+msgid "Continue the analysis"
+msgstr "Continua l'analisi"
+
+#: src/Admin.php:338
+msgid "Analyse"
+msgstr "Analizza"
+
+#. translators: %s: number of images
+#: src/Admin.php:343
+#, php-format
+msgid "Remove the limit from %s image"
+msgid_plural "Remove the limits from %s images"
+msgstr[0] "Togli il limite a %s immagine"
+msgstr[1] "Togli i limiti a %s immagini"
+
+#: src/Admin.php:345
+msgid "Every width of these images is made again, in the background. Continue?"
+msgstr ""
+"Tutte le larghezze di queste immagini vengono rigenerate in background. "
+"Continuare?"
+
+#: src/Admin.php:360
+msgid "What"
+msgstr "Cosa"
+
+#: src/Admin.php:360
+msgid "Files"
+msgstr "File"
+
+#: src/Admin.php:360
+msgid "Size"
+msgstr "Dimensione"
+
+#: src/Admin.php:364
+msgid "(kept)"
+msgstr "(mantenuti)"
+
+#. translators: 1: images, 2: limited, 3: used nowhere, 4: keeping every file
+#: src/Admin.php:373
+#, php-format
+msgid ""
+"%1$s images: %2$s limited to the widths they are shown at, %3$s used "
+"nowhere, %4$s keep every file."
+msgstr ""
+"%1$s immagini: %2$s limitate alle larghezze a cui sono mostrate, %3$s non "
+"usate da nessuna parte, %4$s mantengono tutti i file."
+
+#: src/Admin.php:381
+msgid "Why some images keep every file"
+msgstr "Perché alcune immagini mantengono tutti i file"
+
+#: src/Admin.php:388
+msgid "Fields holding images that no template call was traced to:"
+msgstr ""
+"Campi con immagini a cui non è stata ricondotta nessuna chiamata nei "
+"template:"
+
+#: src/Admin.php:394
+msgid ""
+"Template calls whose image could not be followed. An image shown only there "
+"gets its widths back on the first view:"
+msgstr ""
+"Chiamate nei template di cui non si è potuta seguire l'immagine. Un'immagine "
+"mostrata solo lì riavrà le sue larghezze alla prima visita:"
+
+#: src/Admin.php:432
 msgid "No images need a look."
 msgstr "Nessuna immagine da controllare."
 
-#: src/Admin.php:304
+#: src/Admin.php:436
 msgid ""
 "Images the worker could not convert, with the reason. A conversion discarded "
 "for weighing more than its original is not listed: that is the tolerance at "
@@ -353,40 +493,49 @@ msgstr ""
 "conversione scartata perché pesava più dell'originale non compare: è la "
 "tolleranza che fa il suo lavoro."
 
-#: src/Admin.php:309
+#: src/Admin.php:441
 msgid "File"
 msgstr "File"
 
-#: src/Admin.php:310
+#: src/Admin.php:442
 msgid "Reason"
 msgstr "Motivo"
 
-#: src/Admin.php:311
+#: src/Admin.php:443
 msgid "Time"
 msgstr "Ora"
 
-#: src/Admin.php:338
+#: src/Admin.php:485
 msgid "Settings saved."
 msgstr "Impostazioni salvate."
 
-#: src/Admin.php:339
+#: src/Admin.php:486
 msgid "Settings reset to their defaults."
 msgstr "Impostazioni riportate ai valori predefiniti."
 
-#: src/Admin.php:340
+#: src/Admin.php:487
 msgid "The library will be re-encoded in the background."
 msgstr "La libreria verrà riconvertita in background."
 
-#: src/Admin.php:341
+#: src/Admin.php:488
 msgid "Cache cleared."
 msgstr "Cache svuotata."
 
-#: src/Admin.php:347
+#. translators: %d: number of images
+#: src/Admin.php:495
+#, php-format
+msgid ""
+"%d images no longer limited: their widths are made again in the background."
+msgstr ""
+"%d immagini senza più limite: le loro larghezze vengono rigenerate in "
+"background."
+
+#: src/Admin.php:498
 #, php-format
 msgid "%d files deleted."
 msgstr "%d file eliminati."
 
-#: src/Admin.php:352
+#: src/Admin.php:503
 msgid ""
 "This server can encode neither AVIF nor WebP: images are served in their "
 "original format."
@@ -394,7 +543,7 @@ msgstr ""
 "Questo server non sa generare né AVIF né WebP: le immagini vengono servite "
 "nel formato originale."
 
-#: src/Admin.php:354
+#: src/Admin.php:505
 #, php-format
 msgid ""
 "This server cannot generate %s, which is the format selected: nothing is "
@@ -403,7 +552,7 @@ msgstr ""
 "Questo server non sa generare %s, che è il formato selezionato: non si sta "
 "convertendo nulla."
 
-#: src/Admin.php:356
+#: src/Admin.php:507
 msgid ""
 "This server cannot generate AVIF. Images are served as WebP or in their "
 "original format."
@@ -412,116 +561,140 @@ msgstr ""
 "nel formato originale."
 
 #. translators: 1: format, 2: MIME type the server sends, 3: the right one
-#: src/Admin.php:365
+#: src/Admin.php:516
 #, php-format
 msgid ""
 "The server sends %1$s files as %2$s instead of %3$s. Browsers show them "
 "anyway, but developer tools, PageSpeed and CDNs take them for what the "
 "header says."
-msgstr "Il server invia i file %1$s come %2$s invece che come %3$s. I browser li mostrano lo stesso, ma gli strumenti per sviluppatori, PageSpeed e le CDN li trattano per quello che dice l'intestazione."
+msgstr ""
+"Il server invia i file %1$s come %2$s invece che come %3$s. I browser li "
+"mostrano lo stesso, ma gli strumenti per sviluppatori, PageSpeed e le CDN li "
+"trattano per quello che dice l'intestazione."
 
-#: src/Admin.php:378 src/Admin.php:399 src/Admin.php:455
+#: src/Admin.php:529 src/Admin.php:550 src/Admin.php:609 src/Admin.php:624
+#: src/Admin.php:642
 msgid "Insufficient permissions"
 msgstr "Permessi insufficienti"
 
-#: src/Admin.php:488
+#: src/Admin.php:629
+msgid ""
+"Settings → Widths changed since the analysis: discard the report and run it "
+"again."
+msgstr ""
+"Impostazioni → Larghezze è cambiato dopo l'analisi: scarta il resoconto e "
+"rifalla."
+
+#: src/Admin.php:676
 msgid "Animated"
 msgstr "Animata"
 
-#: src/Admin.php:498
+#: src/Admin.php:686
 msgid "Pending"
 msgstr "In attesa"
 
-#: src/Admin.php:500
+#: src/Admin.php:688
 msgid "Issue"
 msgstr "Problema"
 
-#: src/Admin.php:502
+#: src/Admin.php:690
 #, php-format
 msgid "%d size kept as original: the conversion weighed more"
 msgid_plural "%d sizes kept as original: the conversion weighed more"
 msgstr[0] "%d misura lasciata originale: la conversione pesava di più"
 msgstr[1] "%d misure lasciate originali: la conversione pesava di più"
 
-#: src/Admin.php:505
+#: src/Admin.php:693
 msgid "Every conversion weighed more than the original"
 msgstr "Ogni conversione pesava più dell'originale"
 
-#: src/Admin.php:562
+#: src/Admin.php:751
 msgid "Not available"
 msgstr "Non disponibile"
 
-#. translators: 1: images ready, 2: images in the library
-#: src/Migration/V6.php:55
+#: src/Optimize.php:260
+msgid "Widths wider than the templates show the image"
+msgstr "Larghezze oltre quelle a cui i template mostrano l'immagine"
+
+#. translators: %d: width in pixels
+#: src/Optimize.php:262
 #, php-format
-msgid ""
-"preparing the library while v6 serves the site: %1$s of %2$s images ready. "
-"They are converted in the background; `wp timber-avif prepare --all` does it "
-"in one go."
+msgid "Images no content uses: kept up to %d px"
+msgstr "Immagini non usate da nessun contenuto: mantenute fino a %d px"
+
+#: src/Optimize.php:263
+msgid "Files no attachment owns: copies of deleted images, interrupted encodes"
 msgstr ""
-"sta preparando la libreria mentre la v6 serve il sito: %1$s di %2$s immagini "
-"pronte. La conversione procede in background; `wp timber-avif prepare --all` "
-"la completa in un colpo solo."
+"File che nessun allegato possiede: copie di immagini eliminate, conversioni "
+"interrotte"
 
-#: src/Migration/V6.php:60
+#: src/Optimize.php:264
 msgid ""
-"the library is ready. Remove the require of avif.php from functions.php: v7 "
-"takes over with nothing left to convert."
+"Resizes and conversions Timber made next to the originals, and an older "
+"version's copies: Timber makes again any a page still asks for"
 msgstr ""
-"la libreria è pronta. Togli il require di avif.php da functions.php: la v7 "
-"subentra senza più nulla da convertire."
+"Ridimensionamenti e conversioni di Timber accanto agli originali, e le copie "
+"della versione precedente: Timber rifà quelli che una pagina usa ancora"
 
-#: src/Migration/V6.php:132
-msgid "Remove v6 files"
-msgstr "Rimuovi i file della v6"
-
-#: src/Migration/V6.php:133
+#: src/Optimize.php:286
 msgid ""
-"Deletes the copies v6 wrote next to each file (photo.avif beside photo.jpg) "
-"and its leftover .lock files. v7 names its files differently and never reads "
-"those."
+"referenced where ACF does not say how (another plugin, SEO, the site icon)"
 msgstr ""
-"Elimina le copie scritte dalla v6 accanto a ogni file (photo.avif vicino a "
-"photo.jpg) e i file .lock rimasti. La v7 dà ai suoi file nomi diversi e non "
-"legge quelli."
+"citate dove ACF non dice come (un altro plugin, la SEO, l'icona del sito)"
 
-#: src/Migration/V6.php:134
-msgid "Remove"
-msgstr "Rimuovi"
+#: src/Optimize.php:287
+msgid "in post content or a WYSIWYG field, laid out by WordPress"
+msgstr "nel contenuto o in un campo WYSIWYG, impaginate da WordPress"
 
-#: src/Migration/V6.php:135
-msgid "Delete every file left by v6?"
-msgstr "Eliminare tutti i file lasciati dalla v6?"
+#: src/Optimize.php:288
+msgid "in a field no template call was traced to"
+msgstr "in un campo a cui non è stata ricondotta nessuna chiamata nei template"
 
-#: src/Migration/V6.php:136
-msgid ""
-"Also delete the JPEGs Timber resized for v6 (-640x0-c-default.jpg): v7 does "
-"not use them, and Timber rebuilds any a template still asks for with |resize."
+#: src/Optimize.php:289
+msgid "placed nowhere, yet shown: a template asked for a crop or a width"
 msgstr ""
-"Elimina anche i JPEG ridimensionati da Timber per la v6 (-640x0-c-"
-"default.jpg): la v7 non li usa, e Timber rigenera quelli che un template "
-"chiede ancora con |resize."
+"non inserite da nessuna parte, eppure mostrate: un template ha chiesto un "
+"ritaglio o una larghezza"
+
+#: src/Optimize.php:290
+msgid "shown at full width somewhere"
+msgstr "mostrate a tutta larghezza da qualche parte"
+
+#: src/Optimize.php:291
+msgid "animated"
+msgstr "animate"
+
+#: src/Optimize.php:292
+msgid "no dimensions in its metadata"
+msgstr "senza dimensioni nei metadati"
 
 #: src/Server.php:95
 msgid ""
 "The rule is in .htaccess, but the server ignores it: .htaccess files need "
 "AllowOverride FileInfo, or a CDN in front of the site sends its own type."
-msgstr "La regola è nel .htaccess, ma il server la ignora: i file .htaccess richiedono AllowOverride FileInfo, oppure una CDN davanti al sito invia un tipo suo."
+msgstr ""
+"La regola è nel .htaccess, ma il server la ignora: i file .htaccess "
+"richiedono AllowOverride FileInfo, oppure una CDN davanti al sito invia un "
+"tipo suo."
 
 #: src/Server.php:97
 msgid ""
 "Add these lines to the .htaccess file in the site root (it is not writable, "
 "so Timber AVIF could not):"
-msgstr "Aggiungi queste righe al file .htaccess nella radice del sito (non è scrivibile, quindi Timber AVIF non ha potuto farlo):"
+msgstr ""
+"Aggiungi queste righe al file .htaccess nella radice del sito (non è "
+"scrivibile, quindi Timber AVIF non ha potuto farlo):"
 
 #: src/Server.php:99
 msgid ""
 "Add this line to the server's mime.types file (on nginx, inside the types "
 "block), then reload it:"
-msgstr "Aggiungi questa riga al file mime.types del server (su nginx, dentro il blocco types), poi ricaricalo:"
+msgstr ""
+"Aggiungi questa riga al file mime.types del server (su nginx, dentro il "
+"blocco types), poi ricaricalo:"
 
 #. translators: 1: PHP SAPI name, 2: image format
-#: src/Worker.php:148
+#: src/Worker.php:218
 #, php-format
 msgid ""
 "This PHP process (%1$s) cannot encode %2$s. Run the queue from the web "
@@ -531,7 +704,7 @@ msgstr ""
 "web, oppure attiva Imagick per questo PHP."
 
 #. translators: %d: number of attempts
-#: src/Worker.php:260
+#: src/Worker.php:341
 #, php-format
 msgid ""
 "Set aside after %d attempts: converting this image stops the PHP process "
@@ -540,27 +713,27 @@ msgstr ""
 "Messa da parte dopo %d tentativi: convertire questa immagine interrompe il "
 "processo PHP (limite di memoria o di tempo)."
 
-#: src/Worker.php:272
+#: src/Worker.php:353
 msgid "Source file not found"
 msgstr "File sorgente non trovato"
 
-#: src/Worker.php:541 src/Worker.php:578
+#: src/Worker.php:675 src/Worker.php:712
 msgid "Could not move the converted file into place"
 msgstr "Impossibile spostare il file convertito nella posizione finale"
 
-#: src/Worker.php:564
+#: src/Worker.php:698
 msgid "Output file invalid (corrupt header)"
 msgstr "File generato non valido (intestazione corrotta)"
 
 #. translators: 1: number of sizes, 2: error message
-#: src/Worker.php:607
+#: src/Worker.php:741
 #, php-format
 msgid "%1$d size failed: %2$s"
 msgid_plural "%1$d sizes failed: %2$s"
 msgstr[0] "%1$d misura non riuscita: %2$s"
 msgstr[1] "%1$d misure non riuscite: %2$s"
 
-#: src/Worker.php:610
+#: src/Worker.php:744
 msgid ""
 "Left as it is: the image exceeds the conversion limits (Settings → Limits)."
 msgstr ""
