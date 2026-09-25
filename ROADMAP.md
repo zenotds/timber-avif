@@ -1,29 +1,62 @@
 # Roadmap
 
-Proposals, not commitments. Nothing here is scheduled; each item says what it is for and what has to be found out before it is built.
+7.1 is planned; what follows it is proposals, not commitments. Each item says what it is for and what has to be found out before it is built.
 
-## 7.1 — Generate what is used
+## 7.1
 
-**Status:** proposal, September 2026. Written after moving five sites from v6 to v7.
+**Status:** planned, September 2026. Written after moving five sites from v6 to v7.
 
-### Goal
+7.0's way of making files stays: the upload writes the canonical JPEG sizes, the worker converts the whole library. 7.1 adds to it. The worker no longer needs traffic or a reloaded admin page, and a tool removes, on request, the files no template serves. The v6 code goes.
 
-Save conversion time and disk space by generating each image only at the widths the site actually shows it at, and by removing what nothing shows.
+In this order:
 
-### What 7.0 does today
+1. **The v6 code**, first, because it takes code out of `Plugin`, `Config`, `Admin` and `Cli` before anything else changes there.
+2. **The worker**, which is small.
+3. **Optimize**, last.
 
-- **At upload**, WordPress writes every canonical width below the image's own as a JPEG sub-size (`tavif-320` … `tavif-2560`), because they are registered image sizes, next to its own thumbnail and medium.
-- **The worker** writes a modern copy of every candidate below the image's own width, plus the full-size file. Crops and widths below every configured one are made only when a template asks for them (`Index::want()`).
-- **Where the image will be shown plays no part.** A photo used only in a card gets the same files as a hero.
+### 1. Remove the v6 code
 
-Measured cost for one 2560×1707 photo, on the production setup (Imagick at one thread for JPEG, GD for AVIF), timed on an i5-9600K:
+No site runs v6 any more, and new projects start from v7. What only served the move from v6 goes:
 
-| Step | Time |
-|---|---|
-| Canonical JPEG sizes (only for images uploaded before v7; otherwise part of the upload request) | 4.0 s |
-| AVIF through GD: load 0.27 s, 9 resizes 1.35 s, 9 encodes 1.47 s | 3.1 s |
+- `src/Migration/V6.php`: reading v6's settings, prepare mode's notice, the take-over, *Remove v6 files*, `wp timber-avif prepare` and `purge-v6`.
+- In `Plugin`: prepare mode (`preparing()`, the check for a global `TimberAVIF` class, the early return in `boot()`), `V6_LEFTOVERS`, and the call to `take_over()` in `init()`.
+- In `Config`: reading an option v6 wrote (`Migration\V6::settings()` in `normalize()`, and `migrate()`). The `_v` marker can stay, as a schema version.
+- In `Admin` and `Cli`: the tool and the commands.
+- The 7.0.3 re-encode in `Plugin::init()`. It runs only on a site that upgrades from before 7.0.3 and encodes AVIF through GD, and every site has run 7.0.5.
+- `tests/prepare.php`, `tests/fake-v6.php`, `MIGRATION.md`, and the README's v6 paragraphs.
+- Comments that explain v7 by contrast with v6 are rewritten to stand on their own.
 
-Widths from 1600 up take 46% of the AVIF time. The 2560 encode alone takes 0.41 s of the 1.47 s.
+**Before:** on each site, `timber_avif_v6_leftovers` must be gone, which means *Remove v6 files* has run. Where it has not, v6's files stay on disk until Optimize's orphan report finds them.
+
+### 2. The worker carries on by itself
+
+Today a pass starts from:
+
+- WP-Cron, which needs a visitor;
+- the end of an admin request (`Worker::on_admin_shutdown()`, 8 s once the response is sent), which is why reloading Settings → Timber AVIF moves the queue;
+- *Process now*, one AJAX pass after another while the page stays open;
+- `wp timber-avif work`.
+
+On a site without traffic, a library of a thousand images stops between visits.
+
+**Design.**
+
+- At the end of a pass that converted something and leaves work pending, the worker starts the next one: a non-blocking loopback request to an endpoint that runs one pass.
+- Not `spawn_cron()`, although it makes the same kind of request: it returns at once inside a cron request, which is where the pass runs.
+- The endpoint answers anonymous requests, so it checks a single-use token the worker stores before the call.
+- The lock is released before the call, and the next pass takes it as today.
+- The chain stops when the queue is empty, when a pass converts nothing (only failing images left), or when the loopback fails. WP-Cron and the heartbeat then carry on as today.
+
+**Admin.**
+
+- While work is pending, the queue card fetches the count every few seconds and updates without a reload.
+- *Process now* stays, for hosts that block loopback requests. It shows the remaining count while another worker holds the lock, and no WP-Cron pass is scheduled while it runs, so the two stop alternating.
+
+**To find out:** whether the production host allows loopback requests (Site Health tests it), and whether a security plugin or HTTP authentication on staging blocks them.
+
+### 3. Optimize
+
+**Goal.** Reclaim disk space by removing, on request, the files no template serves. Nothing changes until it runs, and a dry run says first how much it would free.
 
 Disk use on Mobilissimo, fully converted (1,648 images, widths 480–1920 plus full size):
 
@@ -41,42 +74,69 @@ Disk use on Mobilissimo, fully converted (1,648 images, widths 480–1920 plus f
 
 On the same site, originals and `-scaled` files take 489 MB and WordPress's other sizes (thumbnail, medium, 1536, crops) 183 MB.
 
-Three things stand out:
-
 1. **The full-size AVIF is a third of all AVIF bytes.** Every image gets one, whatever it is used for.
 2. **The JPEG fallbacks weigh more than the AVIF copies** (848 MB against 611 MB), and only the few browsers without AVIF download them.
 3. **Widths from 1600 up, full size included, are 51% of the AVIF bytes** and 23% of the JPEG ones.
 
-### Principle
+#### What it reads
 
-What an image is needed for cannot be known at upload. An editor uploads five images, then uses one as a header, two in cards and two in a gallery.
+1. **Where each image is placed**, from the database: featured images (`_thumbnail_id`), ACF fields, options pages, term meta and `post_content`. ACF's field definitions (`acf-json`) say which keys hold an image or a gallery, down to repeaters and flexible content layouts.
+2. **Which template shows it**, from the theme's Twig: every call to `macros.image()`, `image_sources()` and `|best_src`, with its `sizes`, `max` and `ratio`.
+   - In the devkit's layout, `block-{acf_fc_layout}.twig` shows `content.<field>`, which links a layout's field to its call.
+   - A `sizes` built by a condition counts as its widest branch. Dalmec's `block-blocks.twig` picks 310, 415 or 630 px by `count`: 630 it is.
+3. **What the theme declares**, through a filter, for what neither of the above shows: a post type's featured image in a teaser, an image a PHP query picks (Dalmec's variants and accessories).
 
-It is known at render. The template call says the context: `sizes`, `ratio`, `max`. v7 already works this way for crops and small widths: the render records the request, the worker builds the files, and `timber_avif/changed` purges the pages that show the image. The proposal is to treat every width that way.
+#### The need
 
-### Design
+For every place an image is found, the largest width its call can use:
 
-**1. What a render records.** For each attachment it records the largest width needed, uncropped and per ratio.
+- `sizes` evaluated (see *Evaluating `sizes`*), times a density cap of 2x, rounded up to the next configured width;
+- `max` and `|best_src(w)` as they are;
+- per ratio.
 
-- It is computed from `sizes` (see *Evaluating `sizes`*), multiplied by a density cap, and rounded up to the next configured width.
-- `max`, when given, caps it.
-- `|best_src(w)` records `w`.
-- A content image records the need from the `sizes` attribute WordPress writes on it.
+An image's need is the largest over all its places. An image with a place the tool cannot read keeps everything.
 
-The render writes only when the need grows. Post meta is already loaded with the attachment, so comparing costs nothing, and the write happens once per image per new context.
+#### Report and Optimize
 
-The rows would be append-only, like `_tavif_want`, so a render never races the worker writing the index; the worker folds them into the index.
+**Report (dry run)**, files and MB per category:
 
-**2. The worker.** It builds only the configured widths up to the need, and the full size only when the need reaches it. Needs recorded by a render come first in the queue, because a page is waiting for them; new uploads come next.
+- widths beyond the need;
+- images no content references (only what WordPress made is kept);
+- orphans: files in `uploads` no attachment owns, v6 and Timber leftovers included;
+- WordPress sizes nobody serves (`medium_large`, `1536x1536`, `2048x2048`), reported only;
+- the images whose use was not found, so the theme's declarations can be completed.
 
-**3. The renderer.** The `srcset` lists the widths up to the need. The all-or-nothing rule applies to that set. Until it is complete, the page serves the fallback files that exist, as it does today.
+**Optimize** deletes what the report lists, except the rows reported only, then purges the page cache. It is the same pattern as *Delete conversions*: a cached page pointing at a deleted AVIF shows a broken image. CLI: `wp timber-avif optimize [--dry-run]`.
 
-**4. The upload (second phase).** Stop writing the canonical JPEG sizes at upload: drop `tavif-*` in `intermediate_image_sizes_advanced`. The worker then makes each JPEG width when it is needed, as it already does for a crop's fallback. Uploads get faster, and no unused JPEGs are written.
+**Never deleted:**
 
-  To keep the first view of an image in a new context from falling back on the full-size file, one mid-size JPEG (1024, say) could still be written at upload.
+- originals and `-scaled` files;
+- the sizes WordPress itself registers (thumbnail, medium…): `og:image` from Yoast, newsletters and other sites may link them directly;
+- anything of an image whose use is not known.
 
-**5. Density cap.** Needs are computed at 2x by default, as a setting. A 3x phone then gets the 2x file, slightly upscaled. On photos it does not show, and it is the difference between 1280 and 1920 for a typical card.
+#### After Optimize: the cap
 
-### Evaluating `sizes`
+Optimize writes each image's need into its index as a cap, per ratio. Deleting the files alone would not hold:
+
+- **The worker would make them again** at the next settings change, which puts every image back in the queue.
+- **The renderer would stop serving the modern format.** A candidate missing from the index makes the whole srcset unusable (`Renderer::modern_srcset()`), so the page falls back on JPEG.
+- **`Sizes::candidates()` would take the image for one uploaded before v7.** A configured width without its `tavif-*` file makes it fill the set with every other proportional size WordPress made, until the worker builds the rest. With the devkit's `custom.php` that is `medium` (300) on a new upload; on images uploaded before a theme removed them, also `large`, `1536x1536` and `2048x2048`. The worker would convert them all.
+
+So the cap goes where both the worker and the renderer read: `Sizes::candidates()` counts only the configured widths up to it, so a capped image is complete and nothing is filled in. The deleted JPEGs are also removed from the attachment's metadata, or the `<img>` srcset lists missing files.
+
+WPML translations sharing a file share its cap: the largest need of all twins (`Index::twins()`).
+
+#### Reuse
+
+An image Optimize capped and a template later shows larger:
+
+1. The render of a capped image evaluates its `sizes` (or `max`, or `|best_src(w)`). Above the cap, it records the new need, as `Index::want()` does for a crop: one row, the first time.
+2. The worker raises the cap, builds the missing widths, JPEG fallbacks included, and `timber_avif/changed` purges the pages that show the image.
+3. Meanwhile the page serves the capped set, slightly upscaled, still in the modern format.
+
+On an image Optimize never capped, the render does nothing more than today.
+
+#### Evaluating `sizes`
 
 Evaluating `sizes` in the browser's own way needs no interval arithmetic:
 
@@ -91,7 +151,7 @@ Only a small subset of the syntax is needed:
 - **Lengths:** px, rem, em and vw, plus `calc()` with `+`, `-`, `*` and `/`.
 - **`auto`** is skipped: the list after it is the fallback.
 
-Anything else counts as full width, which is today's behaviour, so a `sizes` the evaluator cannot read costs nothing compared with now.
+Anything else counts as full width, so a `sizes` the evaluator cannot read keeps every file.
 
 Two examples from Thinkwater:
 
@@ -102,85 +162,34 @@ Two examples from Thinkwater:
 
 The second case shows why a "small" image is not always small: the widest slot is on a tablet, not on desktop.
 
-### The Optimize tool
+The same evaluator serves the report and the render of a capped image, so it is written once, in PHP, with the `sizes` of the five themes as its tests.
 
-**Analyse (read-only).**
-
-- **Crawl:** go through every public URL (sitemap, then permalinks, every WPML language, paginated archives) with loopback requests, so every image's need is recorded.
-- **Report:**
-  - files beyond the need;
-  - images no page shows;
-  - orphans: files no attachment owns, v6 and Timber leftovers;
-  - WordPress sizes nobody serves (`medium_large`, `1536x1536`, `2048x2048` on sites that never removed them).
-
-The same crawl is also phase 0: it collects the numbers below.
-
-**Optimize.**
-
-- Delete what the report lists, dry run by default, then purge the page cache.
-- The same pattern as *Delete conversions* and *Remove v6 files*: a cached page pointing at a deleted AVIF shows a broken image.
-- CLI: `wp timber-avif analyse`, `wp timber-avif optimize [--dry-run]`.
-
-**What the tool never deletes by default:**
-
-- originals and `-scaled` files;
-- the sizes WordPress lists for an attachment. `og:image` from Yoast, newsletters and other sites may link them directly.
-
-**"Last seen" (optional, later).** A per-image timestamp, updated at most once a day on render, would let images unseen for N days be pruned without a crawl. It means a front-end write per image per day, so the crawl is probably enough.
-
-### Scenarios to work through
+#### Scenarios to work through
 
 | Scenario | Expected behaviour | To find out |
 |---|---|---|
-| Five uploads: one hero, two cards, two gallery images | Hero gets every width, cards up to 1280, gallery what its `sizes` says | — |
-| An image in a card is later used in a hero | The need grows, the missing widths are built, the page is purged | How long the first views stay in JPEG; whether a mid-size upload fallback is needed |
-| An image no page uses | Nothing but thumbnail and medium | Share of such images on real sites (crawl) |
-| Import of hundreds of images (Dalmec's sync) | The import writes almost nothing; work starts when pages are visited | Whether the first crawl after a big import should be triggered |
-| Template redesign: `sizes` grows | Needs grow on the next render | Purge churn right after a deploy |
-| Template redesign: `sizes` shrinks | Nothing is removed until Optimize runs | — |
-| Page cache (WP Rocket) and its preload | The preload renders the pages, so it records the needs | A cache hit records nothing: is the cache-miss render enough? |
-| CDN caching HTML | As today: purge it by hand after Optimize | — |
-| Staging → production | Needs live in post meta, and move with the database | Files must move with `uploads`, as today |
-| WPML translations sharing one file | Needs of all twins combined: the files are shared | Where to store the union |
-| Content images (`the_content`, ACF WYSIWYG) | WordPress's `sizes` is usually the full width | Whether to read `auto` and the layout width instead |
-| `\|best_src` (posters, backgrounds, placeholders) | The requested width is the need | — |
-| Settings change (quality, widths) | Only the needed widths are re-encoded | — |
-| 3x phones | 2x files, slightly upscaled | Whether any site needs 3x (the setting) |
-| Sites already fully converted on 7.0 | Nothing changes until Analyse and Optimize run | Space reclaimed on Mobilissimo and Dalmec |
-| Drafts, previews, pages behind a login | A preview records needs; a draft never published records none | Whether the crawl should include logged-in pages |
-| Feeds, REST API, emails | A width linked from outside is not a need the site knows | Keep WordPress sizes out of Optimize (above) |
+| Optimize on a fully converted site | Files beyond the need, unused images and orphans removed | Space reclaimed on Mobilissimo and Dalmec |
+| An image in a card is later used in a hero | The render records a need above the cap, the widths are built, the page is purged | How long the first views stay on the capped set |
+| An image no content referenced is placed | Its first render records a need, the worker builds it | Its first views are JPEG, from WordPress's sizes |
+| Template redesign: `sizes` grows | Capped images raise their cap on the next render | Purge churn right after a deploy |
+| Template redesign: `sizes` shrinks | Nothing is removed until Optimize runs again | — |
+| Page cache (WP Rocket) | A cache hit records nothing; the render after the purge does | — |
+| Content images (`the_content`, ACF WYSIWYG) | WordPress's `sizes` is usually the full width: everything kept | Whether to read the layout width instead |
+| Images placed by PHP queries | Kept, unless the theme declares them | — |
+| Import of hundreds of images (Dalmec's sync) | New images have no cap: converted in full, as today | — |
+| Settings change (widths, quality) | Capped images get only the widths up to their cap | — |
+| Staging → production | Caps live in post meta, and move with the database | Files must move with `uploads`, as today |
+| Feeds, REST API, emails | WordPress's sizes stay, so external links keep working | — |
 
-### Numbers to collect first
+#### Risks
 
-With the Analyse crawl, on Mobilissimo (fully converted) and Dalmec (the largest library):
-
-- the share of attachments no page shows;
-- the distribution of needs by width;
-- the disk space and conversion time Optimize would reclaim;
-- how often needs grow in the weeks after the first crawl, which is page-cache churn.
-
-### Risks
-
-- **The first view in a new context is JPEG**, and may fall back on a heavy file until the worker is done. Measure it; keep a mid-size JPEG at upload if needed.
-- **More page-cache purges**, as needs grow over time. The existing debounce covers it; measure.
-- **Front-end writes** on the first render of each image. It happens once per image per context, as crops do today.
-- **A misread `sizes`** can only mean more files than needed, never fewer: anything unparsed counts as full width.
-- **Deleting files that something outside the site links to**, which is why WordPress's own sizes stay by default.
-
-### Phases
-
-0. **Measure:** the Analyse crawl, read-only.
-1. **Needs and a worker capped by them**, for the modern copies only. The JPEG sizes are still written at upload. This saves AVIF time and space.
-2. **JPEG widths on demand**, no longer written at upload. Consider fewer fallback widths for the `<img>`, since so few browsers use them.
-3. **Optimize:** delete files beyond the need, images never shown, orphans.
-4. **Optional:** last-seen pruning.
-
-## Also for 7.1
-
-- **The worker carries on without traffic.** At the end of a pass that leaves work pending, the worker starts the next pass itself, through a non-blocking loopback request, instead of waiting for a visitor to trigger WP-Cron. A B2B site at night is otherwise idle for hours.
-- **Optional parallel workers.** A setting for 2–3 concurrent workers, claiming attachments one by one instead of holding the site-wide lock. With Imagick held to one thread, a multi-core server converts 2–3 times faster; the default stays at one, since shared hosts may not like the load.
-- **Process now.** Show the remaining count while another worker holds the lock. Don't schedule a WP-Cron pass while the button is running, so the two stop alternating.
+- **A place the tool misses.** Its image can lose widths it is shown at. The page keeps working on the capped set until the render raises the cap. The report lists what it could not read, and the dry run comes first.
+- **More page-cache purges** after a deploy that grows a `sizes`. The existing debounce covers it; measure.
+- **A misread `sizes`** can only mean more files kept, never fewer: anything unparsed counts as full width.
+- **Deleting files that something outside the site links to**, which is why WordPress's own sizes stay.
 
 ## Not planned
 
+- **Making files only when a template asks for them.** Proposed in September 2026 (ROADMAP.md at v7.0.5): the worker would have built only the widths a render recorded. 7.0's pipeline stays as it is, and Optimize removes the excess afterwards.
+- **Parallel workers.** Two or three workers claiming attachments one by one, for multi-core servers. Set aside: the worker carrying on by itself comes first.
 - **Queuing translations again when their file is replaced.** Dalmec's sync wrote the translations' metadata with `update_post_meta()`; it now uses `wp_update_attachment_metadata()`. WPML itself only copies metadata into translations that have none. Revisit if another tool writes translation metadata directly.
