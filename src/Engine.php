@@ -5,12 +5,12 @@ namespace TimberAVIF;
 /**
  * Encoding, through WordPress's own image editors.
  *
- * v6 carried three engines of its own (GD, Imagick, the ImageMagick CLI). The Imagick one
- * called stripImage(), which also drops the ICC profile, and GD was tried first, which
- * never had one: a Display P3 photo came out of AVIF with different colours than its
- * JPEG. WordPress's Imagick editor keeps ICC, EXIF orientation and XMP, and since 6.5
- * writes AVIF with the quality actually applied. The two subclasses in Editor/ add the
- * one thing missing: saving a resized copy to a path and format of our choosing.
+ * WordPress's Imagick editor keeps ICC, EXIF orientation and XMP, and since 6.5 writes
+ * AVIF with the quality actually applied. An Imagick engine of one's own tends to call
+ * stripImage(), which drops the ICC profile too, and GD never has one: a Display P3 photo
+ * then comes out of AVIF with different colours than its JPEG. The two subclasses in
+ * Editor/ add the one thing missing: saving a resized copy to a path and format of our
+ * choosing.
  */
 final class Engine {
 	const AUTO_OPTION    = 'timber_avif_auto_format';

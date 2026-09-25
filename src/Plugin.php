@@ -8,13 +8,8 @@ namespace TimberAVIF;
 final class Plugin {
 	const VERSION = '7.0.5';
 	const VERSION_OPTION = 'timber_avif_version';
-	// Set when v7 takes over from v6 and cleared once v6's files are removed: until then
-	// Tools and the CLI offer to remove them. Here, not in Migration\V6, so that reading
-	// it never loads the migration code.
-	const V6_LEFTOVERS = 'timber_avif_v6_leftovers';
 
 	private static bool $loaded = false;
-	private static bool $preparing = false;
 
 	/**
 	 * Start Timber AVIF. From functions.php, after vendor/autoload.php — like Timber::init().
@@ -29,27 +24,19 @@ final class Plugin {
 
 		if (!defined('TIMBER_AVIF_DIR')) define('TIMBER_AVIF_DIR', dirname(__DIR__));
 
-		// Booted once the theme has loaded, so a v6 avif.php required after this call is seen too.
+		// Booted once the theme has loaded, so whatever the theme's functions.php sets up after
+		// this call is in place first.
 		add_action('after_setup_theme', [self::class, 'boot'], 1);
 	}
 
-	/** v6's avif.php is loaded too, and renders the site: v7 only converts. */
-	public static function preparing(): bool {
-		return self::$preparing;
-	}
-
 	public static function boot(): void {
-		// v6 declares a global TimberAVIF class; v7 declares none.
-		self::$preparing = class_exists('TimberAVIF', false);
-
 		foreach (['add_option_', 'update_option_', 'delete_option_'] as $hook) add_action($hook . Config::OPTION, [Config::class, 'forget']);
 
-		// Both modes: the files v7 makes, and the worker that makes them.
 		Sizes::register();
 		add_filter('intermediate_image_sizes_advanced', [Sizes::class, 'skip_redundant'], 10, 2);
 
 		// Quality for every encode WordPress runs, not only ours: sub-sizes and the -scaled
-		// original too. After v6's own filters, when it is loaded.
+		// original too. After a theme's own filters.
 		add_filter('wp_editor_set_quality', [self::class, 'quality'], 20, 2);
 		add_filter('jpeg_quality', fn() => (int) Config::get('jpeg_quality'), 20);
 		// Ceiling on the uploaded original: past this width WordPress scales down and keeps the -scaled file.
@@ -66,11 +53,9 @@ final class Plugin {
 		if (is_admin()) {
 			add_action('init', [self::class, 'load_textdomain'], 0);
 			add_action('shutdown', [Worker::class, 'on_admin_shutdown'], 99);
-		}
-
-		if (self::$preparing) {
-			Migration\V6::prepare();
-			return;
+			// A loopback carries no cookies; the token is what lets it in.
+			add_action('wp_ajax_nopriv_' . Worker::RELAY, [Worker::class, 'on_relay']);
+			add_action('wp_ajax_' . Worker::RELAY, [Worker::class, 'on_relay']);
 		}
 
 		add_filter('timber/twig', [Twig::class, 'register']);
@@ -85,17 +70,10 @@ final class Plugin {
 	}
 
 	public static function init(): void {
-		// Once per version, when v7 is the one rendering. An attachment without a v7 stamp is
-		// pending by definition, so nothing is queued explicitly.
-		$from = get_option(self::VERSION_OPTION);
-		if (!self::$preparing && $from !== self::VERSION) {
-			Migration\V6::take_over();
+		// Once per version. An attachment without a stamp for the current settings is pending
+		// by definition, so nothing is queued explicitly.
+		if (get_option(self::VERSION_OPTION) !== self::VERSION) {
 			Server::ensure();
-			// 7.0.3 changed what GD writes at the same settings (Editor\Gd::make_image()): a site
-			// that converted with it before makes its AVIF copies again, a fifth lighter.
-			if (is_string($from) && version_compare($from, '7.0.3', '<') && Config::format() === 'avif' && Engine::detect('avif') === 'gd') {
-				Config::bump_generation();
-			}
 			update_option(self::VERSION_OPTION, self::VERSION, true);
 			Worker::hint();
 			Worker::wake();

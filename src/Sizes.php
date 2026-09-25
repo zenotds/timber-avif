@@ -5,10 +5,10 @@ namespace TimberAVIF;
 /**
  * The canonical widths, as image sizes WordPress knows about.
  *
- * v6 built them with Timber's resize, on the render path and outside any budget: a
- * category page of 28 products could run ~250 JPEG resizes on its first view. As
- * registered sizes they are made at upload like every other sub-size, and
- * `wp media regenerate`, the `-scaled` original and deletion all work as they do in core.
+ * Made at upload like every other sub-size, never while a page renders: built with
+ * Timber's resize on the render path, a category page of 28 products ran ~250 JPEG resizes
+ * on its first view. As registered sizes, `wp media regenerate`, the `-scaled` original
+ * and deletion all work as they do in core.
  */
 final class Sizes {
 	const PREFIX = 'tavif-';
@@ -46,15 +46,13 @@ final class Sizes {
 		};
 
 		// wp_update_image_subsizes() runs `wp_generate_attachment_metadata` again, as if the
-		// image had changed. Two listeners act on that, wrongly here, since sizes are only added:
-		// Timber deletes every resize it made for the image — on Mobilissimo all 6,685 of them,
-		// which v6 then rebuilt inline while it still served the site — and v6's upload hook
-		// re-encoded every image in its own way, doubling the time for files nobody would serve.
+		// image had changed. Timber acts on that, wrongly here, since sizes are only added: it
+		// deletes every resize it made for the image — on Mobilissimo all 6,685 of them, which
+		// the next render of each page then rebuilt inline.
 		$suspended = [];
-		foreach ([['Timber\\ImageHelper', 'generate_attachment_metadata'], ['TimberAVIF', 'on_upload']] as $callback) {
-			if ($callback[0] === 'TimberAVIF' && !Plugin::preparing()) continue;
-			$priority = has_filter('wp_generate_attachment_metadata', $callback);
-			if ($priority === false) continue;
+		$callback = ['Timber\\ImageHelper', 'generate_attachment_metadata'];
+		$priority = has_filter('wp_generate_attachment_metadata', $callback);
+		if ($priority !== false) {
 			remove_filter('wp_generate_attachment_metadata', $callback, $priority);
 			$suspended[] = [$callback, $priority];
 		}
@@ -202,9 +200,8 @@ final class Sizes {
 	 * Apply `max`. Above it one more candidate is kept, the smallest past it: a 200px logo
 	 * capped at 400 still needs something sharp at DPR 2.
 	 *
-	 * v6 also thinned the set to eight candidates, because each one was a file made on
-	 * demand. It quietly dropped 1024 from the nine default widths. Here every configured
-	 * width exists anyway, so the set is what Settings → Widths says.
+	 * Nothing else thins the set: every configured width exists, so it is what Settings →
+	 * Widths says.
 	 */
 	private static function limit(array $candidates, ?int $max): array {
 		if (!$max) return $candidates;

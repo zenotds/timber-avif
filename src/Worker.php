@@ -7,20 +7,27 @@ namespace TimberAVIF;
  *
  * An attachment is pending when its stamp (Index::STAMP) is missing or differs from
  * Config::fingerprint(). Nothing keeps a list: an upload has no stamp yet, a settings
- * change alters the fingerprint, a template asking for a new crop deletes the stamp.
- * v6 kept a 500-entry array in one option, rewritten by every request that queued a
- * job — concurrent requests lost each other's jobs — drained by a cron guard that
- * never fired (6.1.3). None of that is left to go wrong.
+ * change alters the fingerprint, a template asking for a new crop deletes the stamp. A
+ * list in one option, rewritten by every request that queues a job, loses jobs to
+ * concurrent requests; a derived queue has nothing to lose.
  *
- * Nothing here runs while a page renders. Work happens in WP-Cron, after an admin
+ * Nothing here runs while a page renders. A pass starts in WP-Cron, after an admin
  * response has been sent, in the admin's "Process now", or in `wp timber-avif work`,
- * one worker at a time for the whole site.
+ * one worker at a time for the whole site. A pass that leaves work pending starts the
+ * next one itself (relay()), so the queue empties without visitors or a reloaded admin
+ * page.
  */
 final class Worker {
 	const HOOK      = 'timber_avif_work';
 	const HEARTBEAT = 'timber_avif_heartbeat';
 	// Autoloaded "there may be work" flag, so an idle admin request costs no query.
 	const HINT      = 'timber_avif_pending';
+	// The single-use token of the loopback request that starts the next pass. Also the ajax action.
+	const RELAY     = 'timber_avif_relay';
+	// Process now is driving the queue from a browser: nothing else starts a pass meanwhile.
+	const DRIVEN    = 'timber_avif_driven';
+	// A relay token older than this was never collected: the site cannot reach itself.
+	const RELAY_LOST = 2 * MINUTE_IN_SECONDS;
 
 	const CRON_BUDGET  = 20.0;
 	const ADMIN_BUDGET = 8.0;
@@ -53,7 +60,12 @@ final class Worker {
 	}
 
 	public static function on_cron(): void {
-		self::run(self::CRON_BUDGET);
+		// Process now has it: look again once the browser has let go.
+		if (get_transient(self::DRIVEN)) {
+			self::wake(MINUTE_IN_SECONDS);
+			return;
+		}
+		self::run(self::CRON_BUDGET, true);
 	}
 
 	/**
@@ -64,13 +76,70 @@ final class Worker {
 	public static function on_admin_shutdown(): void {
 		if (!get_option(self::HINT)) return;
 		if (wp_doing_cron() || (defined('WP_CLI') && WP_CLI)) return;
-		if (wp_doing_ajax() && ($_REQUEST['action'] ?? '') === 'timber_avif_work') return;
+		// Requests that run a pass of their own, and the admin page asking how far the queue is.
+		if (wp_doing_ajax() && in_array($_REQUEST['action'] ?? '', ['timber_avif_work', 'timber_avif_status', self::RELAY], true)) return;
+		if (get_transient(self::DRIVEN)) return;
 
-		if (function_exists('fastcgi_finish_request'))       fastcgi_finish_request();
-		elseif (function_exists('litespeed_finish_request')) litespeed_finish_request();
-		else return;
+		if (!self::finish_response()) return;
+		self::run(self::ADMIN_BUDGET, true);
+	}
 
-		self::run(self::ADMIN_BUDGET);
+	/**
+	 * Start the next pass in a request of its own, without waiting for it: a loopback to
+	 * admin-ajax.php, the kind of request WordPress's spawn_cron() makes to wp-cron.php. Not
+	 * spawn_cron() itself, which returns at once inside a cron request, where most passes run.
+	 *
+	 * The endpoint is open to anonymous requests, since a loopback carries no cookies, so it
+	 * runs only with the token written here, once. Where the request never arrives — a site
+	 * behind HTTP authentication, a host that blocks loopbacks — the token is left uncollected,
+	 * the admin says so, and WP-Cron carries on as before.
+	 */
+	public static function relay(): void {
+		$token = wp_generate_password(32, false);
+		update_option(self::RELAY, ['token' => $token, 'at' => time()], false);
+		wp_remote_post(admin_url('admin-ajax.php'), [
+			'timeout'   => 0.01,
+			'blocking'  => false,
+			/** This filter is documented in wp-includes/class-wp-http-streams.php */
+			'sslverify' => apply_filters('https_local_ssl_verify', false),
+			'body'      => ['action' => self::RELAY, 'token' => $token],
+		]);
+	}
+
+	/** `wp_ajax_nopriv_timber_avif_relay`: the pass relay() asked for. */
+	public static function on_relay(): void {
+		$stored = get_option(self::RELAY);
+		$expected = is_array($stored) ? (string) ($stored['token'] ?? '') : '';
+		$token = (string) ($_POST['token'] ?? '');
+		if ($expected === '' || !hash_equals($expected, $token) || (int) $stored['at'] < time() - self::RELAY_LOST) {
+			wp_die('', '', ['response' => 403]);
+		}
+		// Collected: an empty token also tells relay_works() that loopbacks arrive.
+		update_option(self::RELAY, ['token' => '', 'at' => time()], false);
+
+		// Nobody waits for this answer: the caller has already hung up.
+		ignore_user_abort(true);
+		self::finish_response();
+		if (!get_transient(self::DRIVEN)) self::run(self::CRON_BUDGET, true);
+		wp_die('', '', ['response' => 200]);
+	}
+
+	/**
+	 * Whether loopback requests reach the site: true once one has arrived, false when the
+	 * last one sent was never collected, null while nothing says either way.
+	 */
+	public static function relay_works(): ?bool {
+		$stored = get_option(self::RELAY);
+		if (!is_array($stored)) return null;
+		if (($stored['token'] ?? '') === '') return true;
+		return (int) ($stored['at'] ?? 0) < time() - self::RELAY_LOST ? false : null;
+	}
+
+	/** Send the response now and carry on in the background, where the server allows it. */
+	private static function finish_response(): bool {
+		if (function_exists('fastcgi_finish_request'))       return fastcgi_finish_request();
+		if (function_exists('litespeed_finish_request'))     return litespeed_finish_request();
+		return false;
 	}
 
 	public static function heartbeat(): void {
@@ -130,11 +199,12 @@ final class Worker {
 	}
 
 	/**
-	 * Work through pending attachments for about $budget seconds.
+	 * Work through pending attachments for about $budget seconds. With $relay, a pass that
+	 * converted something and leaves work pending starts the next one (relay()).
 	 *
 	 * @return array{processed: int, finished: int, remaining: int, busy: bool, error: ?string}
 	 */
-	public static function run(float $budget): array {
+	public static function run(float $budget, bool $relay = false): array {
 		$result = ['processed' => 0, 'finished' => 0, 'remaining' => 0, 'busy' => false, 'error' => null];
 
 		$format = Config::format();
@@ -153,6 +223,7 @@ final class Worker {
 		}
 		if (!Lock::acquire('worker', (int) ceil($budget) + 120)) {
 			$result['busy'] = true;
+			$result['remaining'] = self::count_pending();
 			return $result;
 		}
 
@@ -182,6 +253,10 @@ final class Worker {
 
 		self::announce();
 		if (!$result['remaining']) do_action('timber_avif/idle');
+
+		// A pass that converted nothing would only start another like it: the images left
+		// are the ones failing, and WP-Cron retries them.
+		if ($relay && $result['remaining'] && $result['processed'] && !get_transient(self::DRIVEN)) self::relay();
 
 		return $result;
 	}

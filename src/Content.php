@@ -6,9 +6,8 @@ namespace TimberAVIF;
  * Images in post content and ACF WYSIWYG fields, which the macro never sees: WordPress's
  * <img> is wrapped in a <picture> whose <source> is the attachment's modern set.
  *
- * Mobilissimo's theme did this by hand, calling v6's static API for every candidate of
- * WordPress's srcset. Here it comes from the index, so the <source> is complete by the
- * same rule as the macro's: emitted only once every candidate has been processed.
+ * The <source> comes from the index, so it is complete by the same rule as the macro's:
+ * emitted only once every candidate has been processed.
  */
 final class Content {
 

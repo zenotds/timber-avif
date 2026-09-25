@@ -5,8 +5,8 @@ namespace TimberAVIF;
 /**
  * A site-wide mutex in the options table, so at most one worker encodes at a time.
  *
- * v6's budget was per request: twenty concurrent requests could run two hundred encodes.
- * add_option() is not atomic — it reads the cache, then upserts — so this talks to the
+ * A budget counted per request would let twenty concurrent requests run two hundred
+ * encodes. add_option() is not atomic — it reads the cache, then upserts — so this talks to the
  * table directly: the INSERT that wins is the lock, and an expired lock is taken over
  * with a compare-and-swap, so two workers finding it expired cannot both get it.
  */

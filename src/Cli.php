@@ -14,8 +14,6 @@ final class Cli {
 		\WP_CLI::add_command('timber-avif purge', [self::class, 'purge']);
 		\WP_CLI::add_command('timber-avif detect', [self::class, 'detect']);
 		\WP_CLI::add_command('timber-avif clear-cache', [self::class, 'clear_cache']);
-		// Only while v6's files may still be on disk: see Migration\V6.
-		if (get_option(Plugin::V6_LEFTOVERS)) Migration\V6::register_cli();
 	}
 
 	/**

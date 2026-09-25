@@ -5,10 +5,9 @@ namespace TimberAVIF;
 /**
  * Settings, edited under Settings → Timber AVIF.
  *
- * Only what differs from the defaults is stored. v6 wrote the whole default set into
- * the database on first run, which froze it there: when a default changed in a later
- * release — AVIF quality going back to 75 in 6.1.2 — it reached new installs only.
- * Now a value left at its default keeps following the default.
+ * Only what differs from the defaults is stored. Writing the whole default set on first
+ * run would freeze it in the database, and a default changed in a later release would
+ * reach new installs only. A value left at its default keeps following the default.
  */
 final class Config {
 	const OPTION     = 'timber_avif_settings';
@@ -27,8 +26,7 @@ final class Config {
 	const OVERSIZE_MIN_BYTES  = 4096;
 	const OVERSIZE_HARD_LIMIT = 51200;
 
-	// Marks an option written by v7, which holds choices only. A stored option without it
-	// was written by v6, and is read through Migration\V6.
+	// The version of the option's layout, stored with it.
 	const SCHEMA = '_v';
 
 	private static ?array $settings = null;
@@ -40,9 +38,8 @@ final class Config {
 			// Quality scales are not comparable across codecs: AVIF 75 already sits above JPEG 95 in perceived quality.
 			'avif_quality'         => 75,
 			'webp_quality'         => 90,
-			// WordPress's own default. v6 used 95 because every AVIF was transcoded from these JPEGs; v7
-			// encodes from the uploaded file, so the JPEG is only the fallback, and at 95 it was
-			// two thirds of the disk space v7 adds.
+			// WordPress's own default. Modern copies are encoded from the uploaded file, so the JPEG
+			// is only the fallback: at 95 it was two thirds of the disk space the package adds.
 			'jpeg_quality'         => 82,
 			// One shared set of widths for the whole theme, so the same photo reuses the same files everywhere.
 			'breakpoint_widths'    => '320,480,640,768,1024,1280,1600,1920,2560',
@@ -64,8 +61,8 @@ final class Config {
 	}
 
 	/**
-	 * Hooked on every write of the option (Plugin::boot), not only this class's own: while v7
-	 * prepares next to v6, v6's settings form writes the same option.
+	 * Hooked on every write of the option (Plugin::boot), not only this class's own: `wp option
+	 * update`, a database import or a migration plugin write it too.
 	 */
 	public static function forget(): void {
 		self::$settings = null;
@@ -95,23 +92,10 @@ final class Config {
 	}
 
 	/**
-	 * Store the option the way v7 reads it, so that from then on every stored value is a
-	 * choice. Once, when v7 takes over from v6.
-	 */
-	public static function migrate(): void {
-		$saved = get_option(self::OPTION, []);
-		if (!is_array($saved) || !$saved || !empty($saved[self::SCHEMA])) return;
-		update_option(self::OPTION, [self::SCHEMA => 7] + self::normalize($saved));
-		self::forget();
-	}
-
-	/**
 	 * The choices in a stored option: known keys only, sanitized, without the values that are
-	 * defaults. Reading and migrating go through the same function, so the settings in
-	 * effect are the same before and after v7 takes over from v6.
+	 * defaults.
 	 */
 	private static function normalize(array $saved): array {
-		if ($saved && empty($saved[self::SCHEMA])) $saved = Migration\V6::settings($saved);
 		$saved = array_intersect_key($saved, self::defaults());
 		$clean = array_intersect_key(self::sanitize($saved + self::defaults()), $saved);
 		return self::diff($clean);

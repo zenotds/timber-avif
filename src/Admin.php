@@ -14,6 +14,7 @@ final class Admin {
 		add_action('admin_post_timber_avif_settings', [self::class, 'handle_settings']);
 		add_action('admin_post_timber_avif_tools', [self::class, 'handle_tools']);
 		add_action('wp_ajax_timber_avif_work', [self::class, 'handle_work']);
+		add_action('wp_ajax_timber_avif_status', [self::class, 'handle_status']);
 		add_action('admin_enqueue_scripts', [self::class, 'enqueue']);
 		add_filter('manage_media_columns', [self::class, 'media_column']);
 		add_action('manage_media_custom_column', [self::class, 'render_media_column'], 10, 2);
@@ -102,35 +103,50 @@ final class Admin {
 	}
 
 	private static function render_cards(array $s): void {
-		$format = $s['format'];
-		$engine = $format ? Engine::detect($format) : 'none';
-		$gd = $engine === 'gd';
-
-		$cards = [
-			[__('Served format', 'timber-avif'), $format ? strtoupper($format) : __('Original', 'timber-avif'), $format ? 'ok' : 'off', ''],
-			[__('Engine', 'timber-avif'), $format ? self::engine_label($engine) : '—', !$format ? 'off' : ($engine === 'none' ? 'fail' : ($gd ? 'warn' : 'ok')),
-				$gd ? __('GD keeps no colour profile: photos in Display P3 or Adobe RGB change colour. Enable Imagick on the server.', 'timber-avif') : ''],
-			[__('Library', 'timber-avif'), sprintf(__('%1$s of %2$s ready', 'timber-avif'), number_format_i18n($s['total'] - $s['pending']), number_format_i18n($s['total'])), $s['pending'] ? 'warn' : 'ok', ''],
-			[__('Queue', 'timber-avif'), $s['pending'] ? sprintf(_n('%s pending', '%s pending', $s['pending'], 'timber-avif'), number_format_i18n($s['pending'])) : __('Empty', 'timber-avif'), $s['pending'] ? 'warn' : 'ok',
-				$s['pending'] ? __('Converted in the background by WP-Cron and after admin requests. Tools → Process now empties it right away.', 'timber-avif') : ''],
-		];
-		if ($s['saved'] > 0) {
-			$cards[] = [__('Saved', 'timber-avif'), self::format_bytes($s['saved']), 'ok',
-				sprintf(__('%1$s converted files weigh %2$s less than the files they replace (%3$d%%).', 'timber-avif'), number_format_i18n($s['files']), self::format_bytes($s['saved']), $s['saved_pct'])];
-		}
 		?>
-		<div class="tavif-cards">
-			<?php foreach ($cards as [$label, $value, $state, $tip]) : ?>
-				<div class="tavif-card-stat">
+		<div class="tavif-cards" data-pending="<?php echo (int) $s['pending']; ?>">
+			<?php foreach (self::cards($s) as $key => [$label, $value]) : ?>
+				<div class="tavif-card-stat" data-tavif-card="<?php echo esc_attr($key); ?>">
 					<div class="label"><?php echo esc_html($label); ?></div>
-					<div class="value">
-						<span class="tavif-dot tavif-dot--<?php echo esc_attr($state); ?>"></span><?php echo esc_html($value); ?>
-						<?php if ($tip) : ?><span class="dashicons dashicons-info-outline" title="<?php echo esc_attr($tip); ?>"></span><?php endif; ?>
-					</div>
+					<div class="value"><?php echo $value; ?></div>
 				</div>
 			<?php endforeach; ?>
 		</div>
 		<?php
+	}
+
+	/**
+	 * The status cards: label, and the value as markup. Shared with handle_status(), which
+	 * the page asks every few seconds while the queue is being worked through.
+	 *
+	 * @return array<string, array{0: string, 1: string}>
+	 */
+	private static function cards(array $s): array {
+		$format = $s['format'];
+		$engine = $format ? Engine::detect($format) : 'none';
+		$gd = $engine === 'gd';
+
+		$queue_tip = '';
+		if ($s['pending']) {
+			$queue_tip = Worker::relay_works() === false
+				? __('This server cannot reach itself (a loopback request never arrived: HTTP authentication, or a host that blocks them), so the queue advances with visits and admin requests. Tools → Process now empties it from this browser.', 'timber-avif')
+				: __('Converted in the background: each pass starts the next one until the queue is empty. Tools → Process now does it from this browser instead.', 'timber-avif');
+		}
+
+		$cards = [
+			'format' => [__('Served format', 'timber-avif'), $format ? strtoupper($format) : __('Original', 'timber-avif'), $format ? 'ok' : 'off', ''],
+			'engine' => [__('Engine', 'timber-avif'), $format ? self::engine_label($engine) : '—', !$format ? 'off' : ($engine === 'none' ? 'fail' : ($gd ? 'warn' : 'ok')),
+				$gd ? __('GD keeps no colour profile: photos in Display P3 or Adobe RGB change colour. Enable Imagick on the server.', 'timber-avif') : ''],
+			'library' => [__('Library', 'timber-avif'), sprintf(__('%1$s of %2$s ready', 'timber-avif'), number_format_i18n($s['total'] - $s['pending']), number_format_i18n($s['total'])), $s['pending'] ? 'warn' : 'ok', ''],
+			'queue' => [__('Queue', 'timber-avif'), $s['pending'] ? sprintf(_n('%s pending', '%s pending', $s['pending'], 'timber-avif'), number_format_i18n($s['pending'])) : __('Empty', 'timber-avif'), $s['pending'] ? 'warn' : 'ok', $queue_tip],
+		];
+		if ($s['saved'] > 0) {
+			$cards['saved'] = [__('Saved', 'timber-avif'), self::format_bytes($s['saved']), 'ok',
+				sprintf(__('%1$s converted files weigh %2$s less than the files they replace (%3$d%%).', 'timber-avif'), number_format_i18n($s['files']), self::format_bytes($s['saved']), $s['saved_pct'])];
+		}
+
+		return array_map(fn($c) => [$c[0], '<span class="tavif-dot tavif-dot--' . esc_attr($c[2]) . '"></span>' . esc_html($c[1])
+			. ($c[3] ? ' <span class="dashicons dashicons-info-outline" title="' . esc_attr($c[3]) . '"></span>' : '')], $cards);
 	}
 
 	private static function render_settings(): void {
@@ -252,8 +268,6 @@ final class Admin {
 			'clear_cache' => [__('Clear cache', 'timber-avif'), __('Detect the conversion engines available on this server again, and retry the conversions that failed.', 'timber-avif'), __('Clear', 'timber-avif'), ''],
 			'purge' => [__('Delete conversions', 'timber-avif'), __('Deletes every AVIF and WebP file and every crop Timber AVIF made. Originals are untouched; the files are rebuilt in the background, and until then the originals are served.', 'timber-avif'), __('Delete', 'timber-avif'), __('Delete every generated AVIF and WebP file?', 'timber-avif')],
 		];
-		// Only while v6's files may still be on disk.
-		if (get_option(Plugin::V6_LEFTOVERS)) $tools['purge_v6'] = Migration\V6::tool();
 		?>
 		<div class="tavif-tools-grid">
 			<div class="tavif-tool-card">
@@ -265,7 +279,7 @@ final class Admin {
 					<p class="description tavif-progress-status"></p>
 				</div>
 			</div>
-			<?php foreach ($tools as $key => $tool) : [$title, $text, $button, $confirm] = $tool; $option = $tool[4] ?? ''; ?>
+			<?php foreach ($tools as $key => [$title, $text, $button, $confirm]) : ?>
 				<div class="tavif-tool-card">
 					<h3><?php echo esc_html($title); ?></h3>
 					<p><?php echo esc_html($text); ?></p>
@@ -273,9 +287,6 @@ final class Admin {
 						<?php wp_nonce_field('timber_avif_tools'); ?>
 						<input type="hidden" name="action" value="timber_avif_tools" />
 						<input type="hidden" name="subaction" value="<?php echo esc_attr($key); ?>" />
-						<?php if ($option) : ?>
-							<label class="tavif-tool-option"><input type="checkbox" name="timber_resizes" value="1" /> <?php echo esc_html($option); ?></label>
-						<?php endif; ?>
 						<button type="submit" class="button<?php echo str_starts_with($key, 'purge') ? ' tavif-danger' : ''; ?>"<?php if ($confirm) : ?> onclick="return confirm('<?php echo esc_js($confirm); ?>');"<?php endif; ?>><?php echo esc_html($button); ?></button>
 					</form>
 				</div>
@@ -431,9 +442,6 @@ final class Admin {
 			case 'purge':
 				$args['purged'] = Tools::purge();
 				break;
-			case 'purge_v6':
-				if (get_option(Plugin::V6_LEFTOVERS)) $args['purged'] = Migration\V6::purge(!empty($_POST['timber_resizes']));
-				break;
 		}
 
 		delete_transient(self::STATS);
@@ -472,10 +480,26 @@ final class Admin {
 		check_ajax_referer('timber_avif_work', 'nonce');
 		if (!current_user_can('manage_options')) wp_send_json_error(__('Insufficient permissions', 'timber-avif'), 403);
 
+		// The browser drives the queue while this page asks for passes: WP-Cron and the relay
+		// stand back, so the two do not take turns with the lock. It lapses soon after the last one.
+		set_transient(Worker::DRIVEN, 1, 30);
 		$result = Worker::run(Worker::ADMIN_BUDGET);
+		if (!$result['remaining']) delete_transient(Worker::DRIVEN);
 		delete_transient(self::STATS);
 		if ($result['error']) wp_send_json_error($result['error']);
 		wp_send_json_success($result);
+	}
+
+	/** How far the queue is, for the status cards while it is being worked through. */
+	public static function handle_status(): void {
+		check_ajax_referer('timber_avif_work', 'nonce');
+		if (!current_user_can('manage_options')) wp_send_json_error(__('Insufficient permissions', 'timber-avif'), 403);
+
+		// The two cards that move while the queue does. Savings are summed from every index, so
+		// they wait for a reload.
+		$status = self::status(false);
+		$cards = array_intersect_key(self::cards($status), ['library' => 1, 'queue' => 1]);
+		wp_send_json_success(['pending' => $status['pending'], 'cards' => array_map(fn($c) => $c[1], $cards)]);
 	}
 
 	/* ─────────────────────────────────────────────
@@ -528,14 +552,15 @@ final class Admin {
 	 * Numbers
 	 * ───────────────────────────────────────────── */
 
-	private static function status(): array {
+	private static function status(bool $savings = true): array {
 		global $wpdb;
 		$mimes = "'" . implode("','", array_map('esc_sql', Config::SOURCE_MIMES)) . "'";
 		$total = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'attachment' AND post_mime_type IN ($mimes)");
 		$pending = min($total, Worker::count_pending());
 		$issues = self::issue_count();
 
-		return ['format' => Config::format(), 'total' => $total, 'pending' => $pending, 'issues' => $issues] + self::savings();
+		return ['format' => Config::format(), 'total' => $total, 'pending' => $pending, 'issues' => $issues]
+			+ ($savings ? self::savings() : ['files' => 0, 'saved' => 0, 'saved_pct' => 0]);
 	}
 
 	/**

@@ -2,24 +2,20 @@
 
 Responsive images for Timber 2.x. Generates AVIF (or WebP) copies of every image in the media library **in the background**, and builds a `<picture>` whose markup depends only on what has been recorded — never on what a page render managed to convert.
 
-> v7 is a rewrite, installed as a Composer package or a drop-in folder. Templates do not change. Upgrading from v6: see [MIGRATION.md](MIGRATION.md#from-v61x-to-v70) — v7 can prepare the whole library while v6 still serves the site.
-
-## What changes in v7
-
-v6 converted files while pages rendered, and asked the disk what existed. Most of its changelog came from there: a queue that drained twenty times slower than intended, WebP originals nobody saw, verdicts re-encoded nightly, a first page view that took 12–14 seconds on a catalogue. v7 moves all of it out of the render path.
+## Design
 
 - **Rendering never converts, resizes or touches the disk.** `image_sources()` reads the attachment's metadata and a small index in its post meta. A page cache stores exactly what a fresh render would produce. About 0.12 ms per image.
-- **Conversion happens in a background worker**: WP-Cron, after an admin response has been sent, the admin's *Process now*, or `wp timber-avif work`. One worker at a time for the whole site; v6 counted its budget per request, so twenty concurrent requests could run two hundred encodes.
+- **Conversion happens in a background worker**: WP-Cron, after an admin response has been sent, the admin's *Process now*, or `wp timber-avif work`. One worker at a time for the whole site, so twenty concurrent requests never run two hundred encodes.
 - **The queue is derived, not stored.** An image is pending when its stamp differs from the current settings' fingerprint. An upload has no stamp, a new quality changes the fingerprint, a template asking for a new crop deletes the stamp. There is no list to lose jobs from and no cron guard to get wrong.
 - **The canonical widths are registered image sizes**, built by WordPress at upload like any other sub-size. `wp media regenerate`, the `-scaled` original and deletion behave as in core.
-- **Encoding goes through WordPress's image editors**, from the file WordPress serves as full size. Colour profiles and EXIF orientation are kept: v6's Imagick engine stripped the ICC profile, and GD — which it tried first — never had one, so Display P3 photos changed colour.
-- **Modern files are named after the file they replace** (`photo-640x427.jpg.avif`) and listed in the index, so deleting an image deletes them. v6 swapped the extension, so `photo.jpg`, `photo.png` and an uploaded `photo.avif` all claimed the same path, and nothing ever deleted its copies.
+- **Encoding goes through WordPress's image editors**, from the file WordPress serves as full size. Colour profiles and EXIF orientation are kept, so Display P3 photos keep their colours.
+- **Modern files are named after the file they replace** (`photo-640x427.jpg.avif`) and listed in the index, so deleting an image deletes them, and `photo.jpg`, `photo.png` and an uploaded `photo.avif` never claim the same path.
 - **Images in post content** get a `<picture>` too, through `wp_content_img_tag`.
 - **Page caches are purged when images change** — with WP Rocket built in, through an action for anything else — and a file replaced in place by an import is re-encoded instead of served in its old version.
-- **Settings store only what differs from the defaults**, so a value left alone follows future defaults. Still edited under Settings → Timber AVIF.
-- **A Composer package** (or a drop-in folder), with the macro shipped as `@timber-avif/macros.twig`, so themes stop carrying copies that drift.
+- **Settings store only what differs from the defaults**, so a value left alone follows future defaults. Edited under Settings → Timber AVIF.
+- **A Composer package** (or a drop-in folder), with the macro shipped as `@timber-avif/macros.twig`, so themes do not carry copies that drift.
 
-Measured on a clone of a real catalogue (Mobilissimo, 1,454 images), migrated with the prepare-then-switch path: 8,071 AVIF files checked, none missing, invalid or of the wrong dimensions, half the weight of the JPEGs they replace, with a median visual difference (RMSE) of 0.003. Seven representative pages came out 3% lighter on desktop and 6% on mobile than with v6, and rendered 5–17% faster. What changes most is the worst case: v6's first view of a page with unconverted images took 12–14 seconds; v7 never does image work while rendering. With v6's files removed, the uploads folder went from 2.7 GB to 1.8 GB, v7's own files included.
+Measured on a real catalogue (Mobilissimo, 1,454 images): 8,071 AVIF files checked, none missing, invalid or of the wrong dimensions, half the weight of the JPEGs they replace, with a median visual difference (RMSE) of 0.003.
 
 ## Requirements
 
@@ -51,7 +47,7 @@ Timber\Timber::init();
 TimberAVIF\Plugin::load();
 ```
 
-Versions come from the repository's tags (`v7.0.0` → `7.0.0`); during development, require `dev-v7`. Each site's `composer.lock` pins the version it runs, and `composer update zenotds/timber-avif` moves it forward when you decide to. `vendor/` has to reach the server the same way it does today for Timber.
+Versions come from the repository's tags (`v7.0.0` → `7.0.0`); during development, require `dev-main`. Each site's `composer.lock` pins the version it runs, and `composer update zenotds/timber-avif` moves it forward when you decide to. `vendor/` has to reach the server the same way it does today for Timber.
 
 The call is explicit, rather than run by Composer's autoloader, because the autoloader is also loaded where WordPress is not — a PHPUnit bootstrap, a build script — and there hooking into WordPress is a fatal error.
 
@@ -118,7 +114,7 @@ For what cannot be a `<picture>` — a video poster, a CSS background, a blurred
 
 `|best_src` returns the smallest existing width at or above the one asked for, in the served format when a copy exists, otherwise the fallback file. A width well below every configured one — the 96px placeholder — is built for that image on request, like `max`; until then the smallest width is served. Browsers that cannot decode the modern format get no fallback from a single URL, as they would not from a `<picture>` either.
 
-That is the whole Twig API: the macro, `image_sources()` behind it, and `|best_src`. v6's `|toavif`, `|avif_src`, `|webp_src` and `image.avif` / `.webp` / `.best` are gone — searching every theme on disk found them used nowhere, and the properties had not worked under Timber 2 for years.
+That is the whole Twig API: the macro, `image_sources()` behind it, and `|best_src`.
 
 ### Content images
 
@@ -135,7 +131,7 @@ do_action('timber_avif/idle');                       // the queue is empty
 
 With **WP Rocket** active, Timber AVIF listens itself: it purges the published posts that show the image (featured image, content, custom fields, the post it was uploaded to) and the terms that do (a category's header image). If the image is used site-wide — an ACF options field, the logo, the site icon — or more than 50 pages would need purging, it purges everything, at most once every 15 minutes while a backlog is being converted and once more when the queue empties. Any other cache can listen to the same action.
 
-Deleting files goes the other way round: a browser does not fall back from a `<source>` that fails, so a cached page pointing at a deleted AVIF shows a broken image. *Delete conversions* and *Remove v6 files* purge the whole cache after removing the files, and so does the switch from v6.
+Deleting files goes the other way round: a browser does not fall back from a `<source>` that fails, so a cached page pointing at a deleted AVIF shows a broken image. *Delete conversions* purges the whole cache after removing the files.
 
 ### Replaced files
 
@@ -176,7 +172,7 @@ The worker is protected against the cases that stall a queue: an image slower th
 Settings → Timber AVIF.
 
 - **Settings**: format (auto, AVIF, WebP, none), quality per format, widths, content images, upload and conversion limits, the discard tolerance. Each value that differs from its default shows the default next to it; *Reset to defaults* removes them all.
-- **Tools**: *Process now* works through the queue from the browser. *Rebuild everything* re-encodes the library, after upgrading the server's image libraries for instance. *Clear cache* detects the engines again and retries failures. *Delete conversions* removes every generated file, rebuilt in the background. After a move from v6, *Remove v6 files* until they are gone.
+- **Tools**: *Process now* works through the queue from the browser. *Rebuild everything* re-encodes the library, after upgrading the server's image libraries for instance. *Clear cache* detects the engines again and retries failures. *Delete conversions* removes every generated file, rebuilt in the background.
 - **Issues**: the images the worker could not convert, with the reason.
 
 The media library gets a column with each image's state.
@@ -191,8 +187,6 @@ wp timber-avif purge                         # delete generated files
 wp timber-avif detect                        # which engine encodes AVIF / WebP in this PHP
 wp timber-avif clear-cache                   # detect the engines again
 ```
-
-While moving a site from v6, two more exist: `prepare` next to v6, and `purge-v6` until v6's files are removed — see [MIGRATION.md](MIGRATION.md#from-v61x-to-v70).
 
 The CLI may be a different PHP build than the web server. If it cannot encode the format being served, `work` says so and does nothing, rather than recording failures the web server would not have.
 
@@ -223,7 +217,7 @@ The wrapper the macro emits is `.bizen-ai-media--fill`, which assumes the pictur
 
 **The scales are not comparable across codecs.** AVIF 75 is already past JPEG 95 in perceived quality; pushing AVIF to 90 roughly triples the file size for a difference the eye does not find on photographs.
 
-Defaults: AVIF 75 · WebP 90 · JPEG 82. The JPEG is only the fallback now — v6 needed 95 because every AVIF was transcoded from those JPEGs; v7 encodes from the full-size file. It applies to every sub-size WordPress generates.
+Defaults: AVIF 75 · WebP 90 · JPEG 82. The JPEG is only the fallback: the modern copies are encoded from the full-size file, not from these JPEGs. It applies to every sub-size WordPress generates.
 
 A converted file is kept unless it is meaningfully heavier than the one it replaces: more than 10% **and** more than 4 KB over, or more than 50 KB over regardless. The floor decides below ~40 KB, the ratio between ~40 and ~500 KB, the ceiling above that.
 
@@ -240,10 +234,6 @@ wp i18n make-pot . languages/timber-avif.pot --domain=timber-avif --exclude=test
 msgfmt -o languages/timber-avif-fr_FR.mo languages/timber-avif-fr_FR.po
 ```
 
-## Code layout
-
-Everything that exists only to move a site from v6 lives in `src/Migration/V6.php`. It runs while v6 is still loaded next to v7, once when v7 first runs on a site v6 left traces on, and while v6's files are still on disk; a site that never ran v6 does not load it past that first check. It goes in v8, once every site has moved.
-
 ## Notes
 
 - Some Imagick builds (PECL from source, MAMP, a few hosts) report their version as `@PACKAGE_VERSION@`, and WordPress refuses them as too old. Timber AVIF accepts them, checking everything else WordPress checks.
@@ -256,7 +246,6 @@ Everything that exists only to move a site from v6 lives in `src/Migration/V6.ph
 php tests/unit.php                     # no WordPress needed
 wp eval-file tests/integration.php     # a throwaway site with Timber and this package
 wp eval-file tests/gd.php              # GD's AVIF path; imageavif() stood in for where GD has none
-wp eval-file tests/prepare.php --require=tests/fake-v6.php   # next to v6
 ```
 
 The integration test uploads its own images, runs the worker, renders through Twig and deletes what it made. It changes settings: do not point it at a real site.

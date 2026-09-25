@@ -19,8 +19,6 @@ use TimberAVIF\Server;
 use TimberAVIF\Tools;
 use TimberAVIF\Worker;
 use TimberAVIF\Cache;
-use TimberAVIF\Plugin;
-use TimberAVIF\Migration\V6;
 
 require_once ABSPATH . 'wp-admin/includes/image.php';
 require_once ABSPATH . 'wp-admin/includes/file.php';
@@ -317,7 +315,6 @@ try {
 	wp_delete_post($post_id, true);
 
 	section('Single URL: |best_src');
-	check('no global TimberAVIF class', !class_exists('TimberAVIF', false));
 	$webp_img = Timber::get_image($webp_id);
 	$tiny = render('{{ img|best_src(96) }}', ['img' => $webp_img]);
 	check('a width far below every candidate: the smallest meanwhile', str_contains($tiny, '-320x'), $tiny);
@@ -434,6 +431,62 @@ try {
 	drain();
 	check('the next pass finishes it', get_post_meta($id, Index::STAMP, true) === Config::fingerprint());
 
+	section('The worker carries on by itself');
+	// The loopback is recorded instead of sent, and wp_die() throws instead of exiting.
+	$loopbacks = [];
+	$capture = function ($pre, $args, $url) use (&$loopbacks) {
+		if (($args['body']['action'] ?? '') !== Worker::RELAY) return $pre;
+		$loopbacks[] = ['url' => $url, 'args' => $args];
+		return ['headers' => [], 'body' => '', 'response' => ['code' => 200, 'message' => 'OK'], 'cookies' => [], 'filename' => null];
+	};
+	add_filter('pre_http_request', $capture, 10, 3);
+	$die = fn() => function ($message, $title, $args) { throw new RuntimeException('wp_die ' . (int) ($args['response'] ?? 0)); };
+	add_filter('wp_die_handler', $die, PHP_INT_MAX);
+	$arrive = function (string $token) {
+		$_POST = ['action' => Worker::RELAY, 'token' => $token];
+		try { Worker::on_relay(); } catch (RuntimeException $e) { return $e->getMessage(); } finally { $_POST = []; }
+		return '';
+	};
+	delete_option(Worker::RELAY);
+	$relay_ids = [upload(solid("$work/relay-a.jpg", 2000, 1300, 'red')), upload(solid("$work/relay-b.jpg", 2000, 1300, 'blue'))];
+
+	Worker::run(-1, true);
+	check('a pass that converted nothing starts no other', !$loopbacks);
+	Worker::run(0.01, true);
+	$sent = $loopbacks[0] ?? null;
+	check('a pass that leaves work pending starts the next one: a loopback, not waited for', $sent && str_ends_with($sent['url'], '/wp-admin/admin-ajax.php') && $sent['args']['blocking'] === false, wp_json_encode($sent['args'] ?? null));
+	$token = (string) ($sent['args']['body']['token'] ?? '');
+	check('with the token it stored', $token !== '' && (get_option(Worker::RELAY)['token'] ?? '') === $token);
+	check('while it travels, nothing is known about loopbacks', Worker::relay_works() === null);
+	check('a wrong token is turned away', $arrive('nope') === 'wp_die 403' && (get_option(Worker::RELAY)['token'] ?? '') === $token);
+	$loopbacks = [];
+	check('the right one runs a pass', $arrive($token) === 'wp_die 200' && Worker::count_pending() === 0, (string) Worker::count_pending());
+	check('and is used up: arrived once, loopbacks work', Worker::relay_works() === true && $arrive($token) === 'wp_die 403');
+	check('with the queue empty, no pass follows', !$loopbacks);
+
+	foreach ($relay_ids as $relay_id) Worker::stale($relay_id);
+	set_transient(Worker::DRIVEN, 1, 30);
+	wp_clear_scheduled_hook(Worker::HOOK);
+	Worker::run(0.01, true);
+	check('while Process now drives, a pass starts no other', !$loopbacks);
+	$pending = Worker::count_pending();
+	// WP-Cron unschedules an event before running it.
+	wp_clear_scheduled_hook(Worker::HOOK);
+	Worker::on_cron();
+	check('and WP-Cron looks again a minute later instead of taking the lock', Worker::count_pending() === $pending && wp_next_scheduled(Worker::HOOK) >= time() + 55);
+	delete_transient(Worker::DRIVEN);
+	wp_clear_scheduled_hook(Worker::HOOK);
+
+	update_option(Worker::RELAY, ['token' => 'lost', 'at' => time() - Worker::RELAY_LOST - 1], false);
+	check('a token never collected: the site cannot reach itself', Worker::relay_works() === false);
+	check('and it has expired', $arrive('lost') === 'wp_die 403');
+	drain();
+	delete_option(Worker::RELAY);
+	remove_filter('pre_http_request', $capture, 10);
+	remove_filter('wp_die_handler', $die, PHP_INT_MAX);
+	foreach ($relay_ids as $relay_id) wp_delete_attachment($relay_id, true);
+	$GLOBALS['tavif_it']['uploaded'] = array_diff($GLOBALS['tavif_it']['uploaded'], $relay_ids);
+
 	section('Lock');
 	check('first worker gets the lock', Lock::acquire('test', 60));
 	check('second one does not', !Lock::acquire('test', 60));
@@ -441,45 +494,6 @@ try {
 	check('released', Lock::acquire('test', -1));
 	check('an expired lock is taken over', Lock::acquire('test', 60));
 	Lock::release('test');
-
-	section('Migration from v6');
-	// As v6 left it: every default written on first run, 65 from 6.0, one real choice.
-	update_option(Config::OPTION, ['avif_quality' => 65, 'webp_quality' => 85, 'jpeg_quality' => 95, 'pregenerate_widths' => '640,1024', 'max_inline_conversions' => 10, 'only_if_smaller' => true]);
-	check('before migrating, v6 frozen defaults already read as defaults', Config::quality('avif') === 75 && (int) Config::get('jpeg_quality') === 82 && Config::quality('webp') === 85);
-	$fp_v6 = Config::fingerprint();
-	Config::migrate();
-	check('defaults, v6 defaults and obsolete keys dropped, choices kept', get_option(Config::OPTION) === ['_v' => 7, 'webp_quality' => 85], wp_json_encode(get_option(Config::OPTION)));
-	check('same fingerprint before and after: nothing re-encoded at the switch', Config::fingerprint() === $fp_v6);
-	Config::save(['jpeg_quality' => 95] + Config::all());
-	check('a value chosen in v7 that equals an old v6 default is kept', (int) Config::get('jpeg_quality') === 95);
-	Config::reset();
-
-	$dir = dir_of($id);
-	file_put_contents("$dir/photo-640x427.avif", 'v6');
-	copy("$dir/photo-640x427.jpg", "$dir/photo-640x0-c-default.jpg");
-	file_put_contents("$dir/photo-640x0-c-default.avif", 'v6');
-	file_put_contents("$dir/photo-640x427.avif.lock", '');
-	$v7 = count(glob("$dir/*.jpg.avif"));
-
-	// Taking over from a site where v6 ran: its option without v7's marker, its hourly cron.
-	update_option(Config::OPTION, ['avif_quality' => 75, 'jpeg_quality' => 95, 'max_inline_conversions' => 10]);
-	wp_schedule_event(time(), 'hourly', 'timber_avif_process_queue');
-	$GLOBALS['tavif_rocket'] = [];
-	V6::take_over();
-	check('taking over: settings stored the v7 way, v6\'s cron gone', get_option(Config::OPTION) === ['_v' => 7] && !wp_next_scheduled('timber_avif_process_queue'), wp_json_encode(get_option(Config::OPTION)));
-	check('the page cache is purged: its pages point at v6\'s files', in_array('domain', purged(), true));
-	check('Tools offer to remove v6\'s files', (bool) get_option(Plugin::V6_LEFTOVERS));
-	delete_option(Plugin::V6_LEFTOVERS);
-	V6::take_over();
-	check('a site without v6 traces: taking over does nothing', !get_option(Plugin::V6_LEFTOVERS));
-	update_option(Plugin::V6_LEFTOVERS, 1);
-	Config::reset();
-
-	$removed = V6::purge();
-	check('v6 copies and locks removed', $removed === 3 && !file_exists("$dir/photo-640x427.avif") && !file_exists("$dir/photo-640x0-c-default.avif") && !file_exists("$dir/photo-640x427.avif.lock"), "$removed removed");
-	@unlink("$dir/photo-640x0-c-default.jpg");
-	check('v7 files untouched', count(glob("$dir/*.jpg.avif")) === $v7);
-	check('once they are gone, so is the tool', !get_option(Plugin::V6_LEFTOVERS));
 
 	section('Translations of one file (WPML, Polylang)');
 	$it_id = upload(solid("$work/translated.jpg", 1800, 1200, 'red'));

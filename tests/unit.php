@@ -161,9 +161,9 @@ check('empty widths fall back to the defaults', $clean['breakpoint_widths'], Con
 
 $normalize = new ReflectionMethod(Config::class, 'normalize');
 $normalize->setAccessible(true);
-check('a v6 option: its frozen defaults read as defaults', $normalize->invoke(null, ['avif_quality' => 65, 'jpeg_quality' => 95, 'webp_quality' => 85, 'pregenerate_widths' => '640']), ['webp_quality' => 85]);
-check('a v7 option: every stored value is a choice', $normalize->invoke(null, ['_v' => 7, 'jpeg_quality' => 95]), ['jpeg_quality' => 95]);
-check('values equal to today\'s defaults are dropped either way', $normalize->invoke(null, ['_v' => 7, 'avif_quality' => 75, 'only_if_smaller' => '1']), []);
+check('every stored value is a choice', $normalize->invoke(null, ['_v' => 7, 'jpeg_quality' => 95]), ['jpeg_quality' => 95]);
+check('values equal to today\'s defaults are dropped', $normalize->invoke(null, ['_v' => 7, 'avif_quality' => 75, 'only_if_smaller' => '1']), []);
+check('unknown keys are dropped', $normalize->invoke(null, ['_v' => 7, 'pregenerate_widths' => '640', 'webp_quality' => 85]), ['webp_quality' => 85]);
 
 /* ── Bootstrap outside WordPress ── */
 

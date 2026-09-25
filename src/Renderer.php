@@ -6,9 +6,9 @@ namespace TimberAVIF;
  * Markup data, from the attachment's metadata and index alone.
  *
  * No file_exists(), no resize, no encode: what a page renders depends only on what is
- * recorded, so a page cache holds the same markup a fresh render would produce. In v6
- * the markup depended on how far the per-request budget had got, and a cache could
- * keep the degraded version long after the files existed.
+ * recorded, so a page cache holds the same markup a fresh render would produce. Markup
+ * that depended on how far a conversion had got would let a cache keep the degraded
+ * version long after the files existed.
  */
 final class Renderer {
 
@@ -93,8 +93,8 @@ final class Renderer {
 	 * served format when a copy exists, otherwise the fallback file. With both $width and
 	 * $height it is a crop at that ratio. A width below every candidate — a 96px placeholder
 	 * — is asked of the worker, as `max` is for the macro; until it is built the smallest
-	 * candidate is served. v6 resized to the exact size and converted inline; v7 picks from
-	 * what exists, so the render never waits.
+	 * candidate is served. Nothing is resized or converted inline: it picks from what exists,
+	 * so the render never waits.
 	 */
 	public static function url($image, $width = null, $height = null): string {
 		$id = self::attachment_id($image);
@@ -134,8 +134,8 @@ final class Renderer {
 	 * The modern srcset, or null when it must not be emitted.
 	 *
 	 * A candidate never processed makes the whole set unusable: a browser that supports
-	 * the format picks only from this <source>, so v6's partial sets — the smallest widths
-	 * converted, the rest still queued — had it upscale a 480w file on a desktop. A width
+	 * the format picks only from this <source>, so a partial set — the smallest widths
+	 * converted, the rest still queued — would have it upscale a 480w file on a desktop. A width
 	 * discarded for coming out heavier is a permanent gap and is fine, as long as the
 	 * largest candidate is there: without it big screens would get the next one down.
 	 *
@@ -213,8 +213,8 @@ final class Renderer {
 
 	/**
 	 * `max` well below every candidate — a thumbnail on a site whose smallest width is 480 —
-	 * asks the worker for that width. v6 made it on the spot; until the worker has, the
-	 * smallest candidate is served. Within a quarter of it, the smallest candidate will do.
+	 * asks the worker for that width. Until the worker has built it, the smallest candidate
+	 * is served. Within a quarter of it, the smallest candidate will do.
 	 */
 	private static function with_small(int $id, string $ratio, array $candidates, ?int $max): array {
 		if ($max && $candidates && $candidates[0]['w'] > $max * 1.25) Index::want($id, $ratio, $max);

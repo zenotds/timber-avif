@@ -5,10 +5,9 @@ namespace TimberAVIF;
 /**
  * What exists for an attachment, kept in its own post meta.
  *
- * v6 had no index: every render asked the disk (`file_exists`, `filesize`, and two
- * queries for the failure transient of each variant it had discarded). Post meta is
- * loaded in one query with everything else about the attachment, so reading this is
- * free, and deleting the attachment knows exactly which files to remove.
+ * Without it every render would ask the disk (`file_exists`, `filesize`) about every
+ * candidate. Post meta is loaded in one query with everything else about the attachment,
+ * so reading this is free, and deleting the attachment knows exactly which files to remove.
  *
  * Shape, keyed by the name of the file each entry stands in for:
  *
@@ -18,9 +17,9 @@ namespace TimberAVIF;
  *     'extra' => [ ['w' => 160, 'h' => 107, 'file' => 'photo-scaled-160x107-tavif.jpg'] ],  // widths templates asked for
  *     'anim'  => true    // animated source: served as it is
  *
- * Modern files are named after the file they replace plus the new extension. v6 swapped
- * the extension, so photo.jpg, photo.png and an uploaded photo.avif all claimed the same
- * path.
+ * Modern files are named after the file they replace plus the new extension. Swapping the
+ * extension instead would have photo.jpg, photo.png and an uploaded photo.avif claim the
+ * same path.
  */
 final class Index {
 	const META     = '_tavif';
@@ -175,7 +174,7 @@ final class Index {
 
 	/**
 	 * `delete_attachment`. WordPress removes the sub-sizes it knows about and Timber the
-	 * resizes it made; nothing removed v6's copies, which stayed on disk forever.
+	 * resizes it made; the copies are ours to remove, or they stay on disk forever.
 	 *
 	 * Except the files a twin still serves. Deleting one language of an image in WPML keeps
 	 * the JPEGs for the others; its copies went, and pages in those languages pointed at
