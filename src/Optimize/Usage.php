@@ -32,8 +32,10 @@ final class Usage {
 	const ALTERNATIVE = '||';
 
 	// Post types whose meta holds nothing a visitor sees.
-	const SKIP_TYPES = ['attachment', 'revision', 'nav_menu_item', 'acf-field', 'acf-field-group', 'customize_changeset', 'oembed_cache', 'user_request', 'wp_global_styles', 'custom_css'];
-	const SKIP_STATUSES = ['trash', 'auto-draft', 'inherit'];
+	const SKIP_TYPES = ['revision', 'acf-field', 'acf-field-group', 'customize_changeset', 'oembed_cache', 'user_request', 'wp_global_styles', 'custom_css'];
+	const SKIP_STATUSES = ['trash', 'auto-draft'];
+	// Post types whose fields no template place names: what they reference keeps every file.
+	const OTHER_TYPES = ['attachment', 'nav_menu_item'];
 	// Meta whose numbers are not attachment IDs.
 	// Other plugins' lists of the media a post cites, worked out from its content and fields,
 	// which are read here themselves: WPML's media translation.
@@ -122,8 +124,11 @@ final class Usage {
 	 */
 	public static function scan_posts(int $after, array &$refs, array $images): int {
 		global $wpdb;
+		// Skipped rows still move the cursor; their content, a revision's or an attachment's description, is not fetched.
+		$skip = "'" . implode("','", array_map('esc_sql', array_merge(self::SKIP_TYPES, ['attachment']))) . "'";
+		$statuses = "'" . implode("','", array_map('esc_sql', self::SKIP_STATUSES)) . "'";
 		$rows = $wpdb->get_results($wpdb->prepare(
-			"SELECT ID, post_type, post_status, post_content FROM {$wpdb->posts} WHERE ID > %d ORDER BY ID LIMIT %d",
+			"SELECT ID, post_type, post_status, IF(post_type IN ($skip) OR post_status IN ($statuses), '', post_content) AS post_content FROM {$wpdb->posts} WHERE ID > %d ORDER BY ID LIMIT %d",
 			$after,
 			self::BATCH
 		));
@@ -138,11 +143,14 @@ final class Usage {
 			$meta = [];
 			$ids = implode(',', array_keys($posts));
 			foreach ($wpdb->get_results("SELECT post_id, meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id IN ($ids)") as $m) {
-				$meta[(int) $m->post_id][(string) $m->meta_key] = (string) $m->meta_value;
+				// A list: a key may have many rows (Meta Box keeps a gallery as one row per image).
+				$meta[(int) $m->post_id][(string) $m->meta_key][] = (string) $m->meta_value;
 			}
 			foreach ($posts as $id => $post) {
 				self::read_content((string) $post->post_content, $refs, $images);
-				self::read_meta($meta[$id] ?? [], 'post', $refs, $images);
+				// An attachment's own meta names the attachment itself.
+				if (in_array($post->post_type, self::OTHER_TYPES, true)) self::read_other_meta($meta[$id] ?? [], $refs, $images, $id);
+				else self::read_meta($meta[$id] ?? [], 'post', $refs, $images);
 			}
 		}
 		return (int) end($rows)->ID;
@@ -151,24 +159,32 @@ final class Usage {
 	/** ACF fields of terms, and term meta of other plugins (a product category's thumbnail). */
 	public static function scan_terms(array &$refs, array $images): void {
 		global $wpdb;
-		$meta = [];
-		foreach ($wpdb->get_results("SELECT term_id, meta_key, meta_value FROM {$wpdb->termmeta}") as $m) {
-			$meta[(int) $m->term_id][(string) $m->meta_key] = (string) $m->meta_value;
-		}
-		foreach ($meta as $rows) self::read_meta($rows, 'term', $refs, $images);
+		// By batches of terms, each with all its meta: a term's ACF values need their `_key` rows.
+		$after = 0;
+		do {
+			$terms = array_map('intval', $wpdb->get_col($wpdb->prepare("SELECT DISTINCT term_id FROM {$wpdb->termmeta} WHERE term_id > %d ORDER BY term_id LIMIT %d", $after, self::BATCH)));
+			if (!$terms) break;
+			$meta = [];
+			foreach ($wpdb->get_results("SELECT term_id, meta_key, meta_value FROM {$wpdb->termmeta} WHERE term_id IN (" . implode(',', $terms) . ")") as $m) {
+				$meta[(int) $m->term_id][(string) $m->meta_key][] = (string) $m->meta_value;
+			}
+			foreach ($meta as $rows) self::read_meta($rows, 'term', $refs, $images);
+			$after = end($terms);
+		} while (count($terms) === self::BATCH);
 	}
 
 	/** ACF fields of users (an author's portrait): no template path reaches them, so they keep everything. */
 	public static function scan_users(array &$refs, array $images): void {
 		global $wpdb;
-		$meta = [];
-		foreach ($wpdb->get_results("SELECT u.user_id, u.meta_key, u.meta_value FROM {$wpdb->usermeta} u JOIN {$wpdb->usermeta} k ON k.user_id = u.user_id AND k.meta_key = CONCAT('_', u.meta_key) AND k.meta_value LIKE 'field\\_%'") as $m) {
-			$meta[(int) $m->user_id][(string) $m->meta_key] = (string) $m->meta_value;
-			$meta[(int) $m->user_id]['_' . $m->meta_key] = 'field_';
-		}
-		foreach ($meta as $rows) {
-			foreach ($rows as $key => $value) if ($key[0] !== '_') self::other($value, $refs, $images);
-		}
+		$after = 0;
+		do {
+			$users = array_map('intval', $wpdb->get_col($wpdb->prepare("SELECT DISTINCT user_id FROM {$wpdb->usermeta} WHERE user_id > %d ORDER BY user_id LIMIT %d", $after, self::BATCH)));
+			if (!$users) break;
+			foreach ($wpdb->get_col("SELECT u.meta_value FROM {$wpdb->usermeta} u JOIN {$wpdb->usermeta} k ON k.user_id = u.user_id AND k.meta_key = CONCAT('_', u.meta_key) AND k.meta_value LIKE 'field\\_%' WHERE u.user_id IN (" . implode(',', $users) . ")") as $value) {
+				self::other((string) $value, $refs, $images);
+			}
+			$after = end($users);
+		} while (count($users) === self::BATCH);
 	}
 
 	/**
@@ -181,12 +197,27 @@ final class Usage {
 		foreach ($wpdb->get_results("SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE 'options\\_%' OR option_name LIKE '\\_options\\_%'") as $o) {
 			// ACF names options fields options_{name}, as if they were the meta of an object.
 			$name = (string) $o->option_name;
-			$rows[$name[0] === '_' ? '_' . substr($name, 9) : substr($name, 8)] = (string) $o->option_value;
+			$rows[$name[0] === '_' ? '_' . substr($name, 9) : substr($name, 8)][] = (string) $o->option_value;
 		}
 		self::read_meta($rows, 'option', $refs, $images);
 
-		$other = [(int) get_option('site_icon')];
-		foreach ($wpdb->get_col("SELECT option_value FROM {$wpdb->options} WHERE option_name LIKE 'theme\\_mods\\_%' OR option_name LIKE 'widget\\_media\\_%' OR option_name LIKE 'wpseo%'") as $value) {
+		// ACF fields under a post_id of their own (an options page's `theme_settings`, a widget's):
+		// where that name ends, the option's cannot say.
+		$rows = [];
+		foreach ($wpdb->get_results("SELECT o.option_name, o.option_value, k.option_value AS field_key FROM {$wpdb->options} o JOIN {$wpdb->options} k ON k.option_name = CONCAT('_', o.option_name) AND k.option_value LIKE 'field\\_%' WHERE o.option_name NOT LIKE 'options\\_%'") as $o) {
+			$rows[(string) $o->option_name][] = (string) $o->option_value;
+			$rows['_' . $o->option_name][] = (string) $o->field_key;
+		}
+		self::read_other_meta($rows, $refs, $images);
+
+		// Theme mods and widgets, whose keys are anyone's: every number in them, and the HTML of text and block widgets.
+		foreach ($wpdb->get_col("SELECT option_value FROM {$wpdb->options} WHERE option_name LIKE 'theme\\_mods\\_%' OR option_name LIKE 'widget\\_%'") as $value) {
+			self::other((string) $value, $refs, $images);
+			self::read_content((string) $value, $refs, $images);
+		}
+
+		$other = [(int) get_option('site_icon'), (int) get_option('site_logo'), (int) get_option('woocommerce_placeholder_image')];
+		foreach ($wpdb->get_col("SELECT option_value FROM {$wpdb->options} WHERE option_name LIKE 'wpseo%'") as $value) {
 			// Among them plain strings too: Yoast keeps hashes and versions under wpseo_*.
 			$value = maybe_unserialize($value);
 			if (!is_array($value)) continue;
@@ -200,49 +231,71 @@ final class Usage {
 	/**
 	 * One object's meta: `_key` → `field_…` pairs are ACF's, everything else is someone else's.
 	 *
-	 * @param array<string, string> $meta
+	 * @param array<string, string[]> $meta Key → its rows' values.
 	 */
 	private static function read_meta(array $meta, string $scope, array &$refs, array $images): void {
-		foreach ($meta as $key => $value) {
+		foreach ($meta as $key => $values) {
 			$key = (string) $key;
-			if ($key === '' || $value === '') continue;
+			foreach ($values as $value) {
+				if ($key === '' || $value === '') continue;
 
-			if ($key === '_thumbnail_id') {
-				$id = (int) $value;
-				if (isset($images[$id])) $refs[$id]['p']["$scope|thumbnail"] = true;
-				continue;
-			}
-			if ($key[0] === '_') {
-				// ACF's own record of the field, or internal meta; the rest may hold IDs.
-				if (str_starts_with($value, 'field_') || preg_match(self::NOT_REFERENCES, $key)) continue;
-				self::other($value, $refs, $images);
-				continue;
-			}
+				if ($key === '_thumbnail_id') {
+					$id = (int) $value;
+					if (isset($images[$id])) $refs[$id]['p']["$scope|thumbnail"] = true;
+					continue;
+				}
+				if ($key[0] === '_') {
+					// ACF's own record of the field, or internal meta; the rest may hold IDs.
+					if (str_starts_with($value, 'field_') || preg_match(self::NOT_REFERENCES, $key)) continue;
+					self::other($value, $refs, $images);
+					continue;
+				}
 
-			if (in_array($key, self::INDEXES, true)) continue;
-			$field_key = $meta['_' . $key] ?? '';
-			$field = str_starts_with($field_key, 'field_') ? self::field($field_key) : null;
-			if ($field === null) {
-				self::other($value, $refs, $images);
-				continue;
-			}
+				if (in_array($key, self::INDEXES, true)) continue;
+				$field_key = $meta['_' . $key][0] ?? '';
+				$field = str_starts_with($field_key, 'field_') ? self::field($field_key) : null;
+				if ($field === null) {
+					self::other($value, $refs, $images);
+					continue;
+				}
 
-			switch ($field['kind']) {
-				case 'image':
-				case 'gallery':
-					// A row its repeater or flexible content no longer lists: ACF leaves the values of
-					// removed rows behind, and nothing shows them.
-					$place = self::place($key, $meta, $field, $scope);
-					if ($place === null) break;
-					foreach ($field['kind'] === 'image' ? [(int) $value] : self::ids($value) as $id) {
-						if (isset($images[$id])) $refs[$id]['p'][$place] = true;
-					}
-					break;
-				case 'content':
-					self::read_content($value, $refs, $images);
-					break;
+				switch ($field['kind']) {
+					case 'image':
+					case 'gallery':
+						// A row its repeater or flexible content no longer lists: ACF leaves the values of
+						// removed rows behind, and nothing shows them.
+						$place = self::place($key, $meta, $field, $scope);
+						if ($place === null) break;
+						if ($place === '') {
+							self::other($value, $refs, $images);
+							break;
+						}
+						foreach ($field['kind'] === 'image' ? [(int) $value] : self::ids($value) as $id) {
+							if (isset($images[$id])) $refs[$id]['p'][$place] = true;
+						}
+						break;
+					case 'content':
+						self::read_content($value, $refs, $images);
+						break;
+					case 'other':
+						self::other($value, $refs, $images);
+						break;
+				}
 			}
 		}
+	}
+
+	/**
+	 * Meta whose places no template names: a menu item's, an attachment's, an options page's
+	 * under a post_id of its own. Whatever it references keeps every file, except $self.
+	 *
+	 * @param array<string, string[]> $meta
+	 */
+	private static function read_other_meta(array $meta, array &$refs, array $images, int $self = 0): void {
+		$found = [];
+		self::read_meta($meta, 'post', $found, $images);
+		unset($found[$self]);
+		foreach (array_keys($found) as $id) $refs[$id]['o'] = true;
 	}
 
 	/**
@@ -251,9 +304,10 @@ final class Usage {
 	 * `content_2_cards` — each one a repeater (its meta is a count) or a flexible content
 	 * (its meta lists the layout of each row). The outermost flexible content gives the
 	 * scope, `layout:cards`: its rows are what block templates are handed. Each other
-	 * container is a name and `*`. Null for a row past those its container lists.
+	 * container is a name and `*`. Null for a row past those its container lists; '' when
+	 * the container is one ACF does not know, so that row may be no row at all.
 	 *
-	 * @param array<string, string> $meta The object's meta.
+	 * @param array<string, string[]> $meta The object's meta.
 	 */
 	private static function place(string $key, array $meta, array $field, string $scope): ?string {
 		$segments = [];
@@ -262,11 +316,15 @@ final class Usage {
 		if (preg_match_all('/_(\d+)_/', $key, $m, PREG_OFFSET_CAPTURE)) {
 			foreach ($m[0] as $j => [$match, $pos]) {
 				$prefix = substr($key, 0, $pos);
-				if (!isset($meta[$prefix], $meta['_' . $prefix])) continue;
-				$names = self::names_of((string) $meta['_' . $prefix], substr($prefix, $from));
-				$rows = maybe_unserialize($meta[$prefix]);
+				if (!isset($meta[$prefix][0], $meta['_' . $prefix][0])) continue;
+				$container_key = (string) $meta['_' . $prefix][0];
+				$container = str_starts_with($container_key, 'field_') ? self::field($container_key) : null;
+				// A field next to it whose name it merely starts with: `banner` beside `banner_5_wide`.
+				if ($container !== null && $container['kind'] !== 'rows') continue;
+				$names = self::names_of($container_key, substr($prefix, $from));
+				$rows = maybe_unserialize($meta[$prefix][0]);
 				$row = (int) $m[1][$j][0];
-				if (is_array($rows) ? !isset($rows[$row]) : (is_numeric($rows) && $row >= (int) $rows)) return null;
+				if (is_array($rows) ? !isset($rows[$row]) : (is_numeric($rows) && $row >= (int) $rows)) return $container === null ? '' : null;
 				$layout = is_array($rows) ? (string) $rows[$row] : '';
 				if ($outer === null && !$segments && $layout !== '') {
 					$outer = [$layout, $names];
@@ -298,7 +356,9 @@ final class Usage {
 
 	/**
 	 * How the values of an ACF field are read: 'image' (an ID), 'gallery' (a list of IDs),
-	 * 'content' (HTML), 'none' (anything else: text, a choice, a post). With its segments
+	 * 'content' (HTML), 'rows' (a repeater's count, a flexible content's layouts), 'none' (a
+	 * value that cannot be an attachment: text, a choice), 'other' (anything else: a post, a
+	 * third-party type, whatever it holds keeps every file). With its segments
 	 * from the nearest row that holds it — the groups it is in, its name, and `*` for the
 	 * items of a gallery. Null when ACF does not know the key.
 	 */
@@ -325,7 +385,10 @@ final class Usage {
 			'image', 'file' => 'image',
 			'gallery' => 'gallery',
 			'wysiwyg', 'textarea' => 'content',
-			default => 'none',
+			'repeater', 'flexible_content' => 'rows',
+			'text', 'number', 'range', 'email', 'url', 'password', 'true_false', 'select', 'checkbox', 'radio', 'button_group',
+			'date_picker', 'date_time_picker', 'time_picker', 'color_picker', 'message', 'tab', 'accordion', 'taxonomy', 'user' => 'none',
+			default => 'other',
 		};
 		$segments = [(string) $field['name']];
 		if ($kind === 'gallery') $segments[] = '*';
@@ -348,15 +411,8 @@ final class Usage {
 		$ids = [];
 		if (preg_match_all('/wp-image-(\d+)/', $html, $m)) $ids = $m[1];
 		if (preg_match_all('/\[gallery[^\]]*\bids="([\d,\s]+)"/', $html, $m)) foreach ($m[1] as $list) $ids = array_merge($ids, preg_split('/[\s,]+/', $list));
-		if (preg_match_all('/<!-- wp:[\w\/-]+ (\{[^\n]*?\}) \/?-->/', $html, $m)) {
-			foreach ($m[1] as $json) {
-				$attrs = json_decode($json, true);
-				if (!is_array($attrs)) continue;
-				array_walk_recursive($attrs, function ($v, $k) use (&$ids) {
-					if (in_array((string) $k, ['id', 'ids', 'mediaId'], true) && is_numeric($v)) $ids[] = $v;
-				});
-			}
-		}
+		// Every number in a block's attributes: each block names its image under a key of its own (`imgID`, `data.image`).
+		if (preg_match_all('/<!-- wp:[\w\/-]+ (\{[^\n]*?\}) \/?-->/', $html, $m)) foreach ($m[1] as $json) self::numbers(json_decode($json, true), $ids);
 		foreach ($ids as $id) if (isset($images[(int) $id])) $refs[(int) $id]['c'] = true;
 	}
 
@@ -370,14 +426,20 @@ final class Usage {
 		$value = trim($value);
 		if ($value === '') return [];
 		if (ctype_digit($value)) return [(int) $value];
-		if (preg_match('/^\d+(\s*,\s*\d+)+$/', $value)) return array_map('intval', preg_split('/\s*,\s*/', $value));
-		if (is_serialized($value)) {
-			$data = @unserialize($value, ['allowed_classes' => false]);
-			$ids = [];
-			if (is_array($data)) array_walk_recursive($data, function ($v) use (&$ids) { if (is_int($v) || (is_string($v) && ctype_digit($v))) $ids[] = (int) $v; });
-			elseif (is_int($data)) $ids[] = $data;
-			return $ids;
-		}
-		return [];
+		// A list of numbers, told without a pattern: one of 20,000 exhausts PCRE's JIT stack.
+		if (strspn($value, "0123456789, \t\r\n") === strlen($value)) return array_map('intval', preg_split('/[\s,]+/', $value, -1, PREG_SPLIT_NO_EMPTY));
+		if (is_serialized($value)) $data = @unserialize($value, ['allowed_classes' => false]);
+		elseif ($value[0] === '[' || $value[0] === '{') $data = json_decode($value, true);
+		else return [];
+		$ids = [];
+		self::numbers($data, $ids);
+		return $ids;
+	}
+
+	/** Every whole number in decoded data, at any depth, its strings read as values of their own. Objects too: theme mods keep header_image_data as one. */
+	private static function numbers(mixed $data, array &$ids): void {
+		if (is_int($data)) $ids[] = $data;
+		elseif (is_string($data)) array_push($ids, ...self::ids($data));
+		elseif (is_array($data) || is_object($data)) foreach ((array) $data as $v) self::numbers($v, $ids);
 	}
 }

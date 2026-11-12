@@ -191,11 +191,16 @@ final class Engine {
 		}
 
 		if ($mime === 'image/gif') {
+			// Counted across reads: a frame of a photo-sized GIF is longer than one read, and
+			// counted per read a 3-frame 600×400 animation had one frame in each. A match lying
+			// wholly in the 20 bytes carried over was counted with the read before.
 			$frames = 0;
 			$buffer = '';
 			while (!feof($fh) && $frames < 2) {
-				$buffer = substr($buffer, -20) . fread($fh, 8192);
-				$frames = preg_match_all('/\x00\x21\xF9\x04.{4}\x00(\x2C|\x21)/s', $buffer);
+				$tail = substr($buffer, -20);
+				$buffer = $tail . fread($fh, 8192);
+				preg_match_all('/\x00\x21\xF9\x04.{4}\x00(\x2C|\x21)/s', $buffer, $m, PREG_OFFSET_CAPTURE);
+				foreach ($m[0] as [, $at]) if ($at + 10 > strlen($tail)) $frames++;
 			}
 			fclose($fh);
 			return $frames > 1;

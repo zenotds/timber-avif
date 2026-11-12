@@ -256,7 +256,7 @@ msgid "Re-encode the whole library in the background?"
 msgstr ""
 
 #: src/Admin.php:272
-msgid "Clear cache"
+msgid "Detect engines again"
 msgstr ""
 
 #: src/Admin.php:272
@@ -264,7 +264,7 @@ msgid "Detect the conversion engines available on this server again, and retry t
 msgstr ""
 
 #: src/Admin.php:272
-msgid "Clear"
+msgid "Detect"
 msgstr ""
 
 #: src/Admin.php:273
@@ -407,8 +407,8 @@ msgstr ""
 msgid "The library will be re-encoded in the background."
 msgstr ""
 
-#: src/Admin.php:488
-msgid "Cache cleared."
+#: src/Admin.php:489
+msgid "Engines detected again; failed conversions will be retried."
 msgstr ""
 
 #. translators: %d: number of images
@@ -496,7 +496,15 @@ msgstr ""
 msgid "Images no content uses: kept up to %d px"
 msgstr ""
 
-#: src/Optimize.php:263
+#: src/Optimize.php:269
+msgid "Copies in a format no longer served"
+msgstr ""
+
+#: src/Optimize.php:270
+msgid "Crops no template asks for"
+msgstr ""
+
+#: src/Optimize.php:271
 msgid "Files no attachment owns: copies of deleted images, interrupted encodes"
 msgstr ""
 

@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: Timber AVIF 7.1.1\n"
+"Project-Id-Version: Timber AVIF 7.1.2\n"
 "Report-Msgid-Bugs-To: https://github.com/zenotds/timber-avif/issues\n"
 "POT-Creation-Date: 2026-09-25T13:42:30+00:00\n"
 "PO-Revision-Date: 2026-09-25\n"
@@ -320,8 +320,8 @@ msgid "Re-encode the whole library in the background?"
 msgstr "Riconvertire tutta la libreria in background?"
 
 #: src/Admin.php:272
-msgid "Clear cache"
-msgstr "Svuota la cache"
+msgid "Detect engines again"
+msgstr "Rileva di nuovo i motori"
 
 #: src/Admin.php:272
 msgid ""
@@ -332,8 +332,8 @@ msgstr ""
 "riprova le conversioni non riuscite."
 
 #: src/Admin.php:272
-msgid "Clear"
-msgstr "Svuota"
+msgid "Detect"
+msgstr "Rileva"
 
 #: src/Admin.php:273
 msgid "Delete conversions"
@@ -517,9 +517,9 @@ msgstr "Impostazioni riportate ai valori predefiniti."
 msgid "The library will be re-encoded in the background."
 msgstr "La libreria verrà riconvertita in background."
 
-#: src/Admin.php:488
-msgid "Cache cleared."
-msgstr "Cache svuotata."
+#: src/Admin.php:489
+msgid "Engines detected again; failed conversions will be retried."
+msgstr "Motori rilevati di nuovo; le conversioni fallite verranno ritentate."
 
 #. translators: %d: number of images
 #: src/Admin.php:495
@@ -628,7 +628,15 @@ msgstr "Larghezze oltre quelle a cui i template mostrano l'immagine"
 msgid "Images no content uses: kept up to %d px"
 msgstr "Immagini non usate da nessun contenuto: mantenute fino a %d px"
 
-#: src/Optimize.php:263
+#: src/Optimize.php:269
+msgid "Copies in a format no longer served"
+msgstr "Copie in un formato non più servito"
+
+#: src/Optimize.php:270
+msgid "Crops no template asks for"
+msgstr "Ritagli che nessun template richiede"
+
+#: src/Optimize.php:271
 msgid "Files no attachment owns: copies of deleted images, interrupted encodes"
 msgstr ""
 "File che nessun allegato possiede: copie di immagini eliminate, conversioni "

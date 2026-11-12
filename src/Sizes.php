@@ -57,14 +57,29 @@ final class Sizes {
 			remove_filter('wp_generate_attachment_metadata', $callback, $priority);
 			$suspended[] = [$callback, $priority];
 		}
+		// Ours runs once per sub-size saved: each time it hashed 256 KB of the source and
+		// scheduled a wake, from inside the pass converting the image.
+		remove_filter('wp_update_attachment_metadata', [Plugin::class, 'on_metadata'], 10);
+
+		// WordPress builds sub-sizes from the original upload, never from the attached file. After
+		// an edit in the media modal that is the unedited picture: the JPEGs showed the photo
+		// unrotated, its AVIF copies (Worker::source()) rotated. Only for an edited file
+		// (photo-e1699999999999.jpg): elsewhere the new sizes would be named after -scaled.
+		$attached = static function ($path, $for) use ($id) {
+			$file = (int) $for === $id ? get_attached_file($id) : '';
+			return $file && preg_match('/-e\d{13}\.\w+$/', $file) ? $file : $path;
+		};
 
 		add_filter('wp_get_missing_image_subsizes', $ours, 99);
+		add_filter('wp_get_original_image_path', $attached, 99, 2);
 		try {
 			if (!wp_get_missing_image_subsizes($id)) return $meta;
 			$updated = wp_update_image_subsizes($id);
 		} finally {
 			remove_filter('wp_get_missing_image_subsizes', $ours, 99);
+			remove_filter('wp_get_original_image_path', $attached, 99);
 			foreach ($suspended as [$callback, $priority]) add_filter('wp_generate_attachment_metadata', $callback, $priority, 2);
+			add_filter('wp_update_attachment_metadata', [Plugin::class, 'on_metadata'], 10, 2);
 		}
 
 		return is_array($updated) ? $updated : $meta;

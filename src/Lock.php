@@ -42,9 +42,4 @@ final class Lock {
 		global $wpdb;
 		$wpdb->delete($wpdb->options, ['option_name' => self::option($name)]);
 	}
-
-	public static function held(string $name): bool {
-		global $wpdb;
-		return (int) $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", self::option($name))) > time();
-	}
 }

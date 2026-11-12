@@ -14,7 +14,7 @@ namespace TimberAVIF\Optimize;
  */
 final class Expr {
 	private const BINARY = [
-		'or' => 10, 'and' => 15, 'b-or' => 16, 'b-xor' => 17, 'b-and' => 18,
+		'or' => 10, 'and' => 15,
 		'==' => 20, '!=' => 20, '<=>' => 20, '<' => 20, '>' => 20, '>=' => 20, '<=' => 20,
 		'in' => 20, 'not in' => 20, 'matches' => 20, 'starts with' => 20, 'ends with' => 20, 'has some' => 20, 'has every' => 20,
 		'..' => 25, '+' => 30, '-' => 30, '~' => 40, '*' => 60, '/' => 60, '//' => 60, '%' => 60,
@@ -30,7 +30,8 @@ final class Expr {
 		$parser = new self($tokens);
 		try {
 			$ast = $parser->expression();
-			return $parser->p === count($tokens) ? $ast : $ast;
+			// Tokens left over are an expression not read.
+			return $parser->p === count($tokens) ? $ast : null;
 		} catch (\Throwable $e) {
 			return null;
 		}

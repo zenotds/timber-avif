@@ -54,6 +54,7 @@ final class Optimize {
 			'started' => time(),
 			'timber'  => $timber,
 			'widths'  => Config::widths(),
+			'format'  => self::served_format(),
 			'refs'    => [],
 			'plan'    => [],
 			'dirs'    => [],
@@ -74,6 +75,8 @@ final class Optimize {
 		if (!empty($job['applied']) || $job['phase'] === 'done') return $job;
 		if (function_exists('set_time_limit')) @set_time_limit((int) ceil($budget) + 60);
 		wp_raise_memory_limit('admin');
+		// An analysis an earlier version started has no row for what it did not count.
+		$job['totals'] += self::empty_totals();
 
 		$deadline = microtime(true) + $budget;
 		$images = null;
@@ -170,6 +173,9 @@ final class Optimize {
 		$job['apply'] ??= ['cursor' => 0, 'dir' => 0, 'deleted' => 0, 'bytes' => 0];
 		$deadline = microtime(true) + $budget;
 		$groups = array_keys($job['plan']);
+		// The format switched since the analysis: the copies it found unserved may be the ones served now.
+		$format = self::served_format();
+		if ($format !== ($job['format'] ?? null)) $format = null;
 
 		// Our own hook would put every image back in the queue for a metadata change that
 		// only drops sizes.
@@ -178,7 +184,7 @@ final class Optimize {
 		try {
 			while ($job['apply']['cursor'] < count($groups) && microtime(true) < $deadline) {
 				$plan = $job['plan'][$groups[$job['apply']['cursor']]];
-				[$files, $bytes] = self::apply_group($plan['ids'], $plan['caps']);
+				[$files, $bytes] = self::apply_group($plan, $format);
 				$job['apply']['deleted'] += $files;
 				$job['apply']['bytes'] += $bytes;
 				$job['apply']['cursor']++;
@@ -255,11 +261,13 @@ final class Optimize {
 	 * @return array<string, array{0: string, 1: int, 2: int, 3: bool}>
 	 */
 	public static function rows(array $job): array {
-		$t = $job['totals'] ?? self::empty_totals();
+		$t = ($job['totals'] ?? []) + self::empty_totals();
 		return [
 			'beyond'  => [__('Widths wider than the templates show the image', 'timber-avif'), $t['beyond']['files'], $t['beyond']['bytes'], true],
 			/* translators: %d: width in pixels */
 			'unused'  => [sprintf(__('Images no content uses: kept up to %d px', 'timber-avif'), self::FLOOR), $t['unused']['files'], $t['unused']['bytes'], true],
+			'format'  => [__('Copies in a format no longer served', 'timber-avif'), $t['format']['files'], $t['format']['bytes'], true],
+			'wants'   => [__('Crops no template asks for', 'timber-avif'), $t['wants']['files'], $t['wants']['bytes'], true],
 			'orphans' => [__('Files no attachment owns: copies of deleted images, interrupted encodes', 'timber-avif'), $t['orphans']['files'], $t['orphans']['bytes'], true],
 			'timber'  => [__('Resizes and conversions Timber made next to the originals, and an older version\'s copies: Timber makes again any a page still asks for', 'timber-avif'), $t['timber']['files'], $t['timber']['bytes'], !empty($job['timber'])],
 		];
@@ -340,7 +348,18 @@ final class Optimize {
 
 	private static function empty_totals(): array {
 		$zero = ['files' => 0, 'bytes' => 0];
-		return ['beyond' => $zero, 'unused' => $zero, 'orphans' => $zero, 'timber' => $zero];
+		return ['beyond' => $zero, 'unused' => $zero, 'format' => $zero, 'wants' => $zero, 'orphans' => $zero, 'timber' => $zero];
+	}
+
+	/**
+	 * The format pages are served in, or null when this process cannot tell. Under Auto,
+	 * WP-CLI answers for itself until a web request has stored its answer, and its PHP may
+	 * lack the encoder the web server has: the copies it would take for another format's are
+	 * the ones served.
+	 */
+	private static function served_format(): ?string {
+		if (PHP_SAPI === 'cli' && Config::get('format_mode') === 'auto' && !is_array(get_option(Engine::AUTO_OPTION))) return null;
+		return Config::format();
 	}
 
 	/* ─────────────────────────────────────────────
@@ -431,19 +450,30 @@ final class Optimize {
 			if ($ids[0] !== (int) $row->ID) continue;
 			$job['images']['total']++;
 			$plan = self::plan_group($ids, $job);
+			// Of every image, kept or not, past what the caps leave out: that has its own row.
+			$left = self::leftovers($ids, $job['format'] ?? null, $plan['stale'], $plan['paths'], false);
+			foreach ($left as $kind => [$paths, $bytes]) {
+				$job['totals'][$kind]['files'] += count($paths);
+				$job['totals'][$kind]['bytes'] += $bytes;
+			}
+			// Caps null: they stay as they are, and only the leftovers go.
+			$entry = ['ids' => $ids, 'caps' => $plan['caps'], 'stale' => $plan['stale']];
+			$leftover = $left['format'][0] || $plan['stale'];
 			// An earlier run's caps are replaced: raised or taken off where the templates now
 			// need more, and the worker builds what is missing.
 			$before = Index::caps($ids[0]);
 			if ($plan['kept']) {
 				$job['images']['kept'][$plan['kept']] = ($job['images']['kept'][$plan['kept']] ?? 0) + 1;
 				if ($before) $job['plan'][$ids[0]] = ['ids' => $ids, 'caps' => []];
+				elseif ($leftover) $job['plan'][$ids[0]] = ['caps' => null] + $entry;
 				continue;
 			}
 			$category = $plan['unused'] ? 'unused' : 'beyond';
 			$job['images'][$plan['unused'] ? 'unused' : 'capped']++;
 			$job['totals'][$category]['files'] += $plan['files'];
 			$job['totals'][$category]['bytes'] += $plan['bytes'];
-			if ($plan['files'] || $plan['caps'] !== $before) $job['plan'][$ids[0]] = ['ids' => $ids, 'caps' => $plan['caps']];
+			if ($plan['files'] || $plan['caps'] !== $before) $job['plan'][$ids[0]] = $entry;
+			elseif ($leftover) $job['plan'][$ids[0]] = ['caps' => null] + $entry;
 		}
 		return (int) end($rows)->ID;
 	}
@@ -453,10 +483,10 @@ final class Optimize {
 	 * would: 'other', 'content', 'unmatched', 'shown', 'whole', 'animated', 'none'.
 	 *
 	 * @param int[] $ids The attachments of the file, the first one planned for.
-	 * @return array{caps: array<string, int>, files: int, bytes: int, unused: bool, kept: string}
+	 * @return array{caps: array<string, int>, files: int, bytes: int, unused: bool, kept: string, paths: string[], stale: string[]}
 	 */
 	private static function plan_group(array $ids, array &$job): array {
-		$none = ['caps' => [], 'files' => 0, 'bytes' => 0, 'unused' => false, 'kept' => ''];
+		$none = ['caps' => [], 'files' => 0, 'bytes' => 0, 'unused' => false, 'kept' => '', 'paths' => [], 'stale' => []];
 		$meta = wp_get_attachment_metadata($ids[0]);
 		$index = Index::get($ids[0]);
 		$fw = (int) ($meta['width'] ?? 0);
@@ -483,10 +513,12 @@ final class Optimize {
 			elseif ($needs[$ratio] !== null) $needs[$ratio] = $pixels === null ? null : max($needs[$ratio], $pixels);
 		};
 		$crop_keys = array_keys((array) ($index['crops'] ?? []));
-		$use = function (array $u) use ($add, $fw, $fh, &$crop_keys) {
+		$unknown = false;
+		$use = function (array $u) use ($add, $fw, $fh, &$crop_keys, &$unknown) {
 			$ratio = $u['ratio'];
 			if ($ratio === '?') {
 				// A ratio not known: it may be any crop, or the image's own proportions.
+				$unknown = true;
 				$add('', $u['pixels']);
 				foreach ($crop_keys as $key) $add($key, $u['pixels']);
 				return;
@@ -537,8 +569,28 @@ final class Optimize {
 		}
 		if (!$caps) return ['kept' => 'whole'] + $none;
 
+		$wanted = [];
+		foreach ($ids as $id) foreach (Index::wants($id) as $want) $wanted[] = $want['ratio'];
+		$stale = self::stale_ratios($wanted, $needs, $unknown, !empty($job['untraced']));
+
 		[$files, $bytes] = self::excess($ids, $caps, false);
-		return ['caps' => $caps, 'files' => count($files), 'bytes' => $bytes, 'unused' => $unused, 'kept' => ''];
+		return ['caps' => $caps, 'files' => count($files), 'bytes' => $bytes, 'unused' => $unused, 'kept' => '', 'paths' => $files, 'stale' => $stale];
+	}
+
+	/**
+	 * The crop ratios a render once asked for (Index::wants()) that no template use needs
+	 * now: a retired design's, rebuilt forever otherwise. None when a use's ratio is not
+	 * known or a template call could not be followed: either may be the one asking. A width
+	 * asked for uncropped ('@320') is no crop, and stays. A render that asks again wants it
+	 * again (Renderer::candidates()), and the worker builds it.
+	 *
+	 * @param string[]            $wanted Ratio keys of the wants, '' for uncropped.
+	 * @param array<string, ?int> $needs  By ratio key, as plan_group() works them out.
+	 * @return string[]
+	 */
+	public static function stale_ratios(array $wanted, array $needs, bool $unknown, bool $untraced): array {
+		if ($unknown || $untraced) return [];
+		return array_values(array_unique(array_diff(array_filter($wanted, 'strlen'), array_keys($needs))));
 	}
 
 	/**
@@ -607,6 +659,66 @@ final class Optimize {
 	}
 
 	/**
+	 * Files of this file's attachments that nothing serves, besides those $skip lists
+	 * (excess()): the copies in a format other than $format, the one served — the worker
+	 * keeps up only that format's — and the crops of the $stale ratios with their copies.
+	 * With $apply, their entries leave the indexes and the stale wants go.
+	 *
+	 * @param string[] $stale Crop ratios no template asks for (stale_ratios()).
+	 * @param string[] $skip  Paths counted already.
+	 * @return array{format: array{0: string[], 1: int}, wants: array{0: string[], 1: int}} Paths and bytes, per report row.
+	 */
+	private static function leftovers(array $ids, ?string $format, array $stale, array $skip, bool $apply): array {
+		$indexes = [];
+		foreach ($ids as $id) {
+			$attached = get_attached_file($id);
+			if ($attached) $indexes[$id] = [dirname($attached), Index::get($id)];
+		}
+		// Every attachment of the file is pruned alike, and a copy one serves stays.
+		$crops = [];
+		$serving = [];
+		foreach ($indexes as [, $index]) {
+			foreach ($stale as $ratio) {
+				foreach ((array) ($index['crops'][$ratio] ?? []) as $crop) if (!empty($crop['file'])) $crops[(string) $crop['file']] = true;
+			}
+			if ($format !== null) foreach ((array) ($index[$format] ?? []) as $entry) if (!empty($entry['file'])) $serving[(string) $entry['file']] = true;
+		}
+
+		$paths = ['format' => [], 'wants' => []];
+		foreach ($indexes as $id => [$dir, $index]) {
+			foreach (array_keys($crops) as $name) $paths['wants'][] = "$dir/$name";
+			foreach (['avif', 'webp'] as $f) {
+				foreach ((array) ($index[$f] ?? []) as $source => $entry) {
+					if (empty($entry['file'])) continue;
+					if (isset($crops[$source])) $paths['wants'][] = "$dir/{$entry['file']}";
+					elseif ($format !== null && $f !== $format && !isset($serving[(string) $entry['file']])) $paths['format'][] = "$dir/{$entry['file']}";
+				}
+			}
+			if (!$apply) continue;
+
+			$was = $index;
+			foreach ($stale as $ratio) unset($index['crops'][$ratio]);
+			if (empty($index['crops'])) unset($index['crops']);
+			foreach (['avif', 'webp'] as $f) {
+				if ($format !== null && $f !== $format) unset($index[$f]);
+				elseif (isset($index[$f])) $index[$f] = array_diff_key((array) $index[$f], $crops);
+			}
+			if ($index !== $was) Index::put($id, $index);
+			foreach (array_unique(array_map('strval', (array) get_post_meta($id, Index::WANT, false))) as $spec) {
+				if (in_array(explode('@', $spec, 2)[0], $stale, true)) delete_post_meta($id, Index::WANT, $spec);
+			}
+		}
+
+		$skip = array_flip($skip);
+		$out = [];
+		foreach ($paths as $kind => $list) {
+			$list = array_values(array_filter(array_unique($list), fn($p) => !isset($skip[$p]) && is_file($p)));
+			$out[$kind] = [$list, (int) array_sum(array_map('filesize', $list))];
+		}
+		return $out;
+	}
+
+	/**
 	 * Drop from one attachment's metadata and index what the caps leave out, and record them.
 	 *
 	 * @param array<string, int> $gone Names of the files going, as keys.
@@ -632,18 +744,34 @@ final class Optimize {
 		}
 	}
 
-	/** @return array{0: int, 1: int} Files deleted, bytes. */
-	private static function apply_group(array $ids, array $caps): array {
+	/**
+	 * @param ?string $format The format served, as at the analysis; null leaves every format's copies.
+	 * @return array{0: int, 1: int} Files deleted, bytes.
+	 */
+	private static function apply_group(array $plan, ?string $format): array {
+		$ids = $plan['ids'];
+		$caps = $plan['caps'];
 		// Each language of the file had its own caps: a render may have raised one and not the other.
 		$before = [];
 		foreach ($ids as $id) $before[$id] = Index::caps($id);
 
-		[$paths, $bytes] = self::excess($ids, $caps, true);
+		// Caps null: they stay as they are, and only the leftovers go.
+		[$paths] = $caps === null ? [[]] : self::excess($ids, $caps, true);
+		$left = self::leftovers($ids, $format, $plan['stale'] ?? [], $paths, true);
+		$paths = array_merge($paths, $left['format'][0], $left['wants'][0]);
 		$deleted = 0;
-		foreach ($paths as $path) if (@unlink($path)) $deleted++;
+		$bytes = 0;
+		foreach ($paths as $path) {
+			// Counted once gone: a file that could not be deleted is still taking its space.
+			$size = (int) @filesize($path);
+			if (@unlink($path)) {
+				$deleted++;
+				$bytes += $size;
+			}
+		}
 
 		$queued = false;
-		foreach ($ids as $id) {
+		foreach ($caps === null ? [] : $ids as $id) {
 			if (!$caps) Index::put_caps($id, []);
 			// Allowed more than before: the widths in between are built again, and listed in its metadata.
 			if (self::allows_more($before[$id], $caps)) {

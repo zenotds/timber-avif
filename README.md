@@ -1,4 +1,4 @@
-# Timber AVIF (v7.1.1)
+# Timber AVIF (v7.1.2)
 
 Responsive images for Timber 2.x. Generates AVIF (or WebP) copies of every image in the media library **in the background**, and builds a `<picture>` whose markup depends only on what has been recorded — never on what a page render managed to convert.
 
@@ -182,6 +182,8 @@ An image keeps every file when it is referenced somewhere this reading cannot pl
 
 Files no attachment owns go too, when they carry a name only this package or an interrupted encode write: `photo-640x427.jpg.avif` of a deleted image, a crop an image's finished index no longer lists, `.tavif-XXXXXX.avif`, an older version's `.avif.lock`. A copy of a file that no attachment in the database owns stays, and so does one of an image still in the queue: the database may be behind the folder (an import not run yet, uploads restored from elsewhere), and with the database it belongs to, that copy is served. What Timber writes next to the originals — resizes (`photo-640x0-c-default.jpg`), conversions (`photo.webp`), which are also the names an older version gave its copies — only when asked: Timber makes again any a template still asks for, on the first view of that page. Where another plugin writes its own WebP or AVIF copies (EWWW, ShortPixel, Imagify, Smush, WebP Express, Converter for Media, LiteSpeed), a copy counts only once its original is gone.
 
+Two more kinds go, from images kept or not. The copies in a format no longer served — the WebP files left after a switch to AVIF, which the worker no longer looks after — once the format is known: under *Auto*, WP-CLI leaves them until a web request has recorded the format it serves, and a format switched between the analysis and *Delete* keeps them. And the crops a render asked for once that no template use asks for now — a retired design's — with their copies, when the image keeps nothing for another reason, no use of it has a ratio that cannot be read, and every template call was followed. A render that asks for the crop again has it built again.
+
 Optimize trusts `sizes`. A card that says `300px` but is laid out 700 px wide on a tablet gets, after Optimize, no more than 300 px at 2x needs, including from browsers that measure it themselves (`sizes="auto"`). The theme's macros already ask for an accurate `sizes`; Optimize makes it matter more.
 
 The analysis is a dry run: its report lists what would go, per kind, with the fields and template calls it could not follow. *Delete* applies it and purges the page cache. *Remove the limits* takes every cap off, and the worker makes the missing widths again.
@@ -191,7 +193,7 @@ The analysis is a dry run: its report lists what would go, per kind, with the fi
 Settings → Timber AVIF.
 
 - **Settings**: format (auto, AVIF, WebP, none), quality per format, widths, content images, upload and conversion limits, the discard tolerance. Each value that differs from its default shows the default next to it; *Reset to defaults* removes them all.
-- **Tools**: *Optimize* analyses and removes the widths no template shows (above). *Process now* works through the queue from the browser. *Rebuild everything* re-encodes the library, after upgrading the server's image libraries for instance. *Clear cache* detects the engines again and retries failures. *Delete conversions* removes every generated file, rebuilt in the background.
+- **Tools**: *Optimize* analyses and removes the widths no template shows (above). *Process now* works through the queue from the browser. *Rebuild everything* re-encodes the library, after upgrading the server's image libraries for instance. *Detect engines again* detects the engines again and retries failures. *Delete conversions* removes every generated file, rebuilt in the background.
 - **Issues**: the images the worker could not convert, with the reason.
 
 The Library and Queue cards follow the queue while the worker goes through it, without a reload. The media library gets a column with each image's state.
@@ -199,7 +201,7 @@ The Library and Queue cards follow the queue while the worker goes through it, w
 ## WP-CLI
 
 ```bash
-wp timber-avif status                        # format, engine, widths, pending count, served type
+wp timber-avif status                        # format, engine, widths, pending count, relay, limited images, issues, served type
 wp timber-avif work [--all]                  # convert pending images; --all until the queue is empty
 wp timber-avif rebuild                       # re-encode everything with the current settings
 wp timber-avif purge                         # delete generated files

@@ -269,7 +269,7 @@ final class Admin {
 	private static function render_tools(array $s): void {
 		$tools = [
 			'rebuild' => [__('Rebuild everything', 'timber-avif'), __('Encode every image again with the current settings — after upgrading the server\'s image libraries, for instance. The current files are served until each is replaced.', 'timber-avif'), __('Rebuild', 'timber-avif'), __('Re-encode the whole library in the background?', 'timber-avif')],
-			'clear_cache' => [__('Clear cache', 'timber-avif'), __('Detect the conversion engines available on this server again, and retry the conversions that failed.', 'timber-avif'), __('Clear', 'timber-avif'), ''],
+			'clear_cache' => [__('Detect engines again', 'timber-avif'), __('Detect the conversion engines available on this server again, and retry the conversions that failed.', 'timber-avif'), __('Detect', 'timber-avif'), ''],
 			'purge' => [__('Delete conversions', 'timber-avif'), __('Deletes every AVIF and WebP file and every crop Timber AVIF made. Originals are untouched; the files are rebuilt in the background, and until then the originals are served.', 'timber-avif'), __('Delete', 'timber-avif'), __('Delete every generated AVIF and WebP file?', 'timber-avif')],
 		];
 		?>
@@ -475,8 +475,8 @@ final class Admin {
 			WHERE i.meta_key = %s";
 	}
 
-	/** Files with an issue: the number on the tab and the rows under it. */
-	private static function issue_count(): int {
+	/** Files with an issue: the number on the tab and the rows under it, and in `wp timber-avif status`. */
+	public static function issue_count(): int {
 		global $wpdb;
 		return (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(DISTINCT f.meta_value) " . self::issues_from(), Index::ISSUE));
 	}
@@ -486,7 +486,7 @@ final class Admin {
 			'updated'      => __('Settings saved.', 'timber-avif'),
 			'reset'        => __('Settings reset to their defaults.', 'timber-avif'),
 			'rebuild'      => __('The library will be re-encoded in the background.', 'timber-avif'),
-			'cleared'      => __('Cache cleared.', 'timber-avif'),
+			'cleared'      => __('Engines detected again; failed conversions will be retried.', 'timber-avif'),
 		];
 		foreach ($notices as $key => $text) {
 			if (!empty($_GET[$key])) echo '<div class="notice notice-success is-dismissible"><p>' . esc_html($text) . '</p></div>';

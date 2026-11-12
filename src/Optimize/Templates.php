@@ -25,7 +25,6 @@ use TimberAVIF\Renderer;
  * ID), and `any` (a value whose origin is not known, like the posts of a query).
  */
 final class Templates {
-	const MAX_ALTERNATIVES = 24;
 	const MAX_DEPTH = 14;
 
 	// Properties that give another form of the same image: still that image.
@@ -34,7 +33,7 @@ final class Templates {
 	const WRAPPERS = ['get_image', 'Image', 'get_attachment', 'timber_image'];
 	const POST_WRAPPERS = ['get_post', 'Post', 'get_posts', 'PostQuery', 'get_term', 'Term', 'get_terms'];
 
-	/** @var array<string, array{file: string, rel: string, chunks: array}> by relative path */
+	/** @var array<string, array{chunks: array}> by relative path */
 	private array $files = [];
 	/** @var array<string, array<string, array{params: array, defaults: array, chunks: array}>> file → macro → definition */
 	private array $macros = [];
@@ -42,9 +41,14 @@ final class Templates {
 	private array $uses = [];
 	private array $untraced = [];
 	private array $visited = [];
+	/** @var array<string, true> Files and macros being run, `file` or `file#macro`. */
+	private array $stack = [];
+	/** @var array<string, true> Files run from their top. */
+	private array $ran = [];
+	/** @var array<string, ?array> Expressions parsed, by their text. */
+	private array $parsed = [];
 	/** @var string[] Where the macros being run were called from, outermost first. */
 	private array $callers = [];
-	private int $depth = 0;
 	private string $at = '';
 
 	/**
@@ -62,7 +66,7 @@ final class Templates {
 	/** Templates given as `name => source`, for tests. */
 	public static function read_sources(array $sources, array $option_vars = ['options']): array {
 		$reader = new self($option_vars);
-		foreach ($sources as $rel => $source) $reader->add($rel, $rel, $source);
+		foreach ($sources as $rel => $source) $reader->add($rel, $source);
 		$reader->run();
 		return $reader->result();
 	}
@@ -93,14 +97,14 @@ final class Templates {
 				$rel = $prefix . substr($file->getPathname(), strlen($root) + 1);
 				// The first location that has a name is the one Twig uses.
 				if (isset($this->files[$rel])) continue;
-				$this->add($rel, $file->getPathname(), (string) file_get_contents($file->getPathname()));
+				$this->add($rel, (string) file_get_contents($file->getPathname()));
 			}
 		}
 	}
 
-	private function add(string $rel, string $path, string $source): void {
+	private function add(string $rel, string $source): void {
 		$chunks = self::lex($source);
-		$this->files[$rel] = ['file' => $path, 'rel' => $rel, 'chunks' => $chunks];
+		$this->files[$rel] = ['chunks' => $chunks];
 		$this->collect_macros($rel, $chunks);
 	}
 
@@ -127,13 +131,17 @@ final class Templates {
 		$chunks = [];
 		$len = strlen($src);
 		$i = 0;
+		$line = 1;
+		$counted = 0;
 		$verbatim = false;
 		while ($i < $len) {
 			$open = strpos($src, '{', $i);
 			if ($open === false || $open + 1 >= $len) break;
 			$next = $src[$open + 1];
 			if ($next !== '{' && $next !== '%' && $next !== '#') { $i = $open + 1; continue; }
-			$line = substr_count($src, "\n", 0, $open) + 1;
+			// Counted on from the last chunk: from the start each time is quadratic.
+			$line += substr_count($src, "\n", $counted, $open - $counted);
+			$counted = $open;
 			$close = $next === '{' ? '}}' : ($next === '%' ? '%}' : '#}');
 			$end = self::find_close($src, $open + 2, $close, $next !== '#');
 			if ($end === null) break;
@@ -282,26 +290,47 @@ final class Templates {
 	 * ───────────────────────────────────────────── */
 
 	private function run(): void {
-		foreach ($this->entries() as $rel) {
-			$this->run_chunks($rel, $this->files[$rel]['chunks'], new Env());
+		foreach ($this->entries() as $rel) $this->run_file($rel, new Env());
+		// One reached only from itself or through a cycle is rendered from PHP: run it too.
+		foreach (array_keys($this->files) as $rel) {
+			if (!isset($this->ran[$rel])) $this->run_file($rel, new Env());
 		}
 	}
 
 	private function run_chunks(string $rel, array $chunks, Env $env): void {
-		if ($this->depth > self::MAX_DEPTH) return;
-		$this->depth++;
 		$macro_depth = 0;
 		$loops = [];
-		foreach ($chunks as [$kind, $body, $line]) {
+		$parent = null;
+		$embed = null;
+		foreach ($chunks as $chunk) {
+			[$kind, $body, $line] = $chunk;
 			$this->at = "$rel:$line";
 			// Macro bodies run when called, with their arguments.
 			if ($kind === 'tag' && preg_match('/^macro\b/', $body)) { $macro_depth++; continue; }
 			if ($kind === 'tag' && preg_match('/^endmacro\b/', $body)) { $macro_depth--; continue; }
 			if ($macro_depth > 0) continue;
+			// The blocks of an embed run with what the embed passes, not with this template's values.
+			if ($embed !== null) {
+				if ($kind === 'tag' && preg_match('/^embed\b/', $body)) $embed[1]++;
+				if ($kind === 'tag' && preg_match('/^endembed\b/', $body) && --$embed[1] === 0) {
+					$this->at = $embed[3];
+					$this->include($rel, $embed[0], $env, $embed[2]);
+					$embed = null;
+					continue;
+				}
+				$embed[2][] = $chunk;
+				continue;
+			}
+			if ($kind === 'tag' && preg_match('/^embed\s+(.+)$/s', $body, $m)) { $embed = [$m[1], 1, [], $this->at]; continue; }
+			// A child's sets outside its blocks run first, then its layout, with them.
+			if ($kind === 'tag' && preg_match('/^extends\s+(.+)$/s', $body, $m)) { $parent = [$m[1], $this->at]; continue; }
 			if ($kind === 'print') $this->eval_text($body, $env, $rel);
 			else $this->run_tag($rel, $body, $env, $loops);
 		}
-		$this->depth--;
+		if ($parent !== null) {
+			$this->at = $parent[1];
+			$this->include($rel, $parent[0], $env);
+		}
 	}
 
 	private function run_tag(string $rel, string $body, Env $env, array &$loops): void {
@@ -310,11 +339,13 @@ final class Templates {
 
 		switch ($word) {
 			case 'set':
-				// {% set a, b = x, y %} is rare; {% set x %}…{% endset %} captures markup: unknown.
+				// {% set x %}…{% endset %} captures markup, {% set a, b = x, y %} is not followed: unknown.
 				if (preg_match('/^(\w+)\s*=\s*(.+)$/s', $rest, $m)) {
 					$env->add($m[1], $this->eval_text($m[2], $env, $rel));
 				} elseif (preg_match('/^(\w+)\s*$/', $rest, $m)) {
 					$env->add($m[1], Value::unknown());
+				} elseif (preg_match('/^(\w+(?:\s*,\s*\w+)+)\s*=/', $rest, $m)) {
+					foreach (preg_split('/\s*,\s*/', $m[1]) as $name) $env->add($name, Value::unknown());
 				}
 				return;
 
@@ -325,12 +356,12 @@ final class Templates {
 					$env->enter();
 					$env->set($m[2], $items->element());
 					if ($m[1] !== '') $env->set($m[1], Value::unknown());
-					$loops[] = true;
+					$loops[] = 'for';
 				}
 				return;
 
 			case 'endfor':
-				if ($loops) { array_pop($loops); $env->pop(); $env->leave(); }
+				if (end($loops) === 'for') { array_pop($loops); $env->pop(); $env->leave(); }
 				return;
 
 			case 'endif':
@@ -338,11 +369,26 @@ final class Templates {
 				return;
 
 			case 'with':
-				// {% with {a: b} %}: the names are added, as a set would.
-				if ($rest !== '' && !str_starts_with($rest, 'only')) {
-					$hash = $this->eval_text(preg_replace('/\s+only\s*$/', '', $rest), $env, $rel);
-					foreach ($hash->keys() as $key) $env->add($key, $hash->get($key));
-				}
+				// {% with {a: b} %}…{% endwith %}: a scope of its own; with `only` nothing outside it is seen.
+				$only = (bool) preg_match('/(^|\s)only\s*$/', $rest);
+				$rest = trim(preg_replace('/(^|\s)only\s*$/', '', $rest));
+				$hash = $rest !== '' ? $this->eval_text($rest, $env, $rel) : null;
+				$env->scope($only);
+				if ($hash) foreach ($hash->keys() as $key) $env->set($key, $hash->get($key));
+				$loops[] = 'with';
+				return;
+
+			case 'endwith':
+				if (end($loops) === 'with') { array_pop($loops); $env->pop(); }
+				return;
+
+			case 'block':
+				// What a block sets goes when it ends. `{% block x value %}` has no end.
+				if (preg_match('/^\w+\s*$/', $rest)) { $env->scope(); $loops[] = 'block'; }
+				return;
+
+			case 'endblock':
+				if (end($loops) === 'block') { array_pop($loops); $env->pop(); }
 				return;
 
 			case 'if':
@@ -370,7 +416,6 @@ final class Templates {
 				return;
 
 			case 'include':
-			case 'embed':
 				$this->include($rel, $rest, $env);
 				return;
 		}
@@ -386,7 +431,8 @@ final class Templates {
 		return Value::of(['ns', $files]);
 	}
 
-	private function include(string $rel, string $rest, Env $env): void {
+	/** `include`, `extends`, and `embed` with its blocks. */
+	private function include(string $rel, string $rest, Env $env, array $blocks = []): void {
 		$only = (bool) preg_match('/\sonly\s*$/', $rest);
 		$rest = preg_replace('/\s+only\s*$/', '', $rest);
 		$with = null;
@@ -395,19 +441,44 @@ final class Templates {
 			$with = $this->eval_text($m[2], $env, $rel);
 		}
 		$rest = preg_replace('/\s+ignore\s+missing\s*$/', '', $rest);
+		$passed = $only ? new Env() : $env->copy();
+		if ($with) foreach ($with->keys() as $key) $passed->set($key, $with->get($key));
 
-		foreach (self::name_patterns(Expr::parse($rest)) as [$pattern, $layout_var]) {
-			foreach ($this->resolve($pattern) as $target) {
-				$inner = $only ? new Env() : $env->copy();
-				if ($with) foreach ($with->keys() as $key) $inner->set($key, $with->get($key));
-				// The file picked by a row's layout gets that row, as a row of that layout.
-				if ($layout_var !== null && str_contains($pattern, '*')) {
-					$layout = $this->wildcard($pattern, $target);
-					if ($layout !== null) $inner->set($layout_var, Value::of(['path', "layout:$layout", []]));
-				}
-				$this->run_file($target, $inner);
+		foreach ($this->targets($this->parse($rest), $this->eval_text($rest, $env, $rel)) as [$target, $layout_var, $pattern]) {
+			$inner = $passed->copy();
+			// The file picked by a row's layout gets that row, as a row of that layout.
+			if ($layout_var !== null && str_contains($pattern, '*')) {
+				$layout = $this->wildcard($pattern, $target);
+				if ($layout !== null) $inner->set($layout_var, Value::of(['path', "layout:$layout", []]));
 			}
+			$this->run_file($target, $inner);
 		}
+		if ($blocks) $this->run_chunks($rel, $blocks, $passed);
+	}
+
+	/**
+	 * The files a template name can be: the strings it is, when that is all it can be, else
+	 * its patterns. A name that resolves to no file this way is listed as untraced.
+	 *
+	 * @return array<int, array{0: string, 1: ?string, 2: string}> [file, layout variable, pattern]
+	 */
+	private function targets(?array $ast, Value $name): array {
+		$strings = [];
+		foreach ($name->alternatives() as $alt) {
+			if ($alt[0] !== 'str') { $strings = null; break; }
+			$strings[] = $alt[1];
+		}
+		$out = [];
+		if ($strings !== null) {
+			// A missing file Twig would not render either.
+			foreach ($strings as $string) foreach ($this->resolve($string) as $target) $out[] = [$target, null, $string];
+			return $out;
+		}
+		foreach (self::name_patterns($ast) as [$pattern, $layout_var]) {
+			foreach ($this->resolve($pattern) as $target) $out[] = [$target, $layout_var, $pattern];
+		}
+		if (!$out) $this->untraced[] = $this->callers[0] ?? $this->at;
+		return $out;
 	}
 
 	/** What the `*` of a pattern stands for in a file that matched it. */
@@ -419,9 +490,17 @@ final class Templates {
 	private function run_file(string $rel, Env $env): void {
 		$key = $rel . '|' . $env->hash();
 		if (isset($this->visited[$key]) || !isset($this->files[$rel])) return;
+		// Already being run, or too deep: a recursion not unrolled, listed rather than missed.
+		if (isset($this->stack[$rel]) || count($this->stack) > self::MAX_DEPTH) {
+			$this->untraced[] = $this->callers[0] ?? $this->at;
+			return;
+		}
 		$this->visited[$key] = true;
+		$this->ran[$rel] = true;
+		$this->stack[$rel] = true;
 		$at = $this->at;
 		$this->run_chunks($rel, $this->files[$rel]['chunks'], $env);
+		unset($this->stack[$rel]);
 		$this->at = $at;
 	}
 
@@ -430,8 +509,16 @@ final class Templates {
 	 * ───────────────────────────────────────────── */
 
 	private function eval_text(string $text, Env $env, string $rel): Value {
-		$ast = Expr::parse($text);
+		$ast = $this->parse($text);
+		// A call that shows an image, in an expression not read: listed, not lost.
+		if (!$ast && preg_match('/\bimage\s*\(|\bimage_sources\s*\(|\bbest_src\b/', $text)) $this->untraced[] = $this->callers[0] ?? $this->at;
 		return $ast ? $this->ev($ast, $env, $rel) : Value::unknown();
+	}
+
+	/** Expr::parse, once per text: a theme repeats the same expressions. */
+	private function parse(string $text): ?array {
+		if (!array_key_exists($text, $this->parsed)) $this->parsed[$text] = Expr::parse($text);
+		return $this->parsed[$text];
 	}
 
 	private function ev(array $n, Env $env, string $rel): Value {
@@ -565,12 +652,10 @@ final class Templates {
 			$name = $n[2][0] ?? null;
 			$with = $pos[1] ?? null;
 			if ($name) {
-				foreach (self::name_patterns($name) as [$pattern]) {
-					foreach ($this->resolve($pattern) as $target) {
-						$inner = $env->copy();
-						if ($with) foreach ($with->keys() as $key) $inner->set($key, $with->get($key));
-						$this->run_file($target, $inner);
-					}
+				foreach ($this->targets($name, $pos[0] ?? Value::unknown()) as [$target]) {
+					$inner = $env->copy();
+					if ($with) foreach ($with->keys() as $key) $inner->set($key, $with->get($key));
+					$this->run_file($target, $inner);
 				}
 			}
 			return Value::unknown();
@@ -599,7 +684,7 @@ final class Templates {
 	private function call_macro(string $file, string $macro, array $pos, array $named): void {
 		$def = $this->macros[$file][$macro] ?? null;
 		if (!$def) return;
-		$env = new Env();
+		$env = $this->top_imports($file);
 		foreach ($def['params'] as $i => $param) {
 			$value = $pos[$i] ?? $named[$param] ?? null;
 			if ($value === null && isset($def['defaults'][$param])) $value = $this->ev($def['defaults'][$param], $env, $file);
@@ -607,13 +692,34 @@ final class Templates {
 		}
 		$key = "$file#$macro|" . $env->hash();
 		if (isset($this->visited[$key])) return;
+		$frame = "$file#$macro";
+		if (isset($this->stack[$frame]) || count($this->stack) > self::MAX_DEPTH) {
+			$this->untraced[] = $this->callers[0] ?? $this->at;
+			return;
+		}
 		$this->visited[$key] = true;
+		$this->stack[$frame] = true;
 		$at = $this->at;
 		// Uses inside a macro are reported where the template called it.
 		$this->callers[] = $at;
 		$this->run_chunks($file, $def['chunks'], $env);
 		array_pop($this->callers);
+		unset($this->stack[$frame]);
 		$this->at = $at;
+	}
+
+	/** What a file imports outside its macros: Twig 3 lets its macros use it too. */
+	private function top_imports(string $file): Env {
+		$env = new Env();
+		$loops = [];
+		$macro_depth = 0;
+		foreach ($this->files[$file]['chunks'] ?? [] as [$kind, $body]) {
+			if ($kind !== 'tag') continue;
+			if (preg_match('/^macro\b/', $body)) $macro_depth++;
+			elseif (preg_match('/^endmacro\b/', $body)) $macro_depth--;
+			elseif ($macro_depth === 0 && preg_match('/^(import|from)\s/', $body)) $this->run_tag($file, $body, $env, $loops);
+		}
+		return $env;
 	}
 
 	private function filter(array $n, Env $env, string $rel): Value {
@@ -675,11 +781,12 @@ final class Templates {
 			}
 		}
 
-		// A constant is null or a missing key: the call shows nothing. What is not known at all,
-		// or is the root of a scope rather than a field, is a call this reading cannot follow.
+		// A constant is null or a missing key: the call shows nothing; a literal ID is that
+		// attachment. What is not known at all, or is the root of a scope rather than a field,
+		// is a call this reading cannot follow.
 		$places = [];
 		$lost = false;
-		foreach ($image->alternatives() as $alt) {
+		foreach ($image->as_image()->alternatives() as $alt) {
 			if ($alt[0] === 'path' && ($alt[2] || str_starts_with($alt[1], 'id:'))) $places[] = [$alt[1], implode('.', $alt[2])];
 			elseif ($alt[0] !== 'const' && $alt[0] !== 'str' && $alt[0] !== 'num') $lost = true;
 		}
@@ -714,7 +821,7 @@ final class Templates {
 	}
 
 	/** Split on $sep outside brackets and strings. */
-	public static function split_top(string $s, string $sep): array {
+	private static function split_top(string $s, string $sep): array {
 		$parts = [];
 		$depth = 0;
 		$start = 0;

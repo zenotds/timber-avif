@@ -18,7 +18,7 @@ final class Cli {
 	}
 
 	/**
-	 * Format, engine and how much of the library is ready.
+	 * Format, engine, how much of the library is ready, and what may need a look.
 	 */
 	public static function status(): void {
 		$format = Config::format();
@@ -26,6 +26,9 @@ final class Cli {
 		\WP_CLI::log('Engine:  ' . ($format ? Engine::detect($format) : '—') . ' (' . Engine::runtime() . ')');
 		\WP_CLI::log('Widths:  ' . implode(', ', Config::widths()));
 		\WP_CLI::log('Pending: ' . Worker::count_pending());
+		\WP_CLI::log('Relay:   ' . match (Worker::relay_works()) { true => 'ok', false => 'not reaching the site (WP-Cron only)', null => 'unknown' });
+		\WP_CLI::log('Limited: ' . Optimize::capped());
+		\WP_CLI::log('Issues:  ' . Admin::issue_count());
 		if ($format) \WP_CLI::log('Served:  ' . (Server::served_type(true) ?? '— (no copy yet, or the site did not answer)'));
 	}
 

@@ -166,12 +166,6 @@ final class Worker {
 		return (int) $wpdb->get_var(self::pending_sql('COUNT(DISTINCT p.ID)'));
 	}
 
-	/** Images the worker would convert, pending or not. */
-	public static function count_sources(): int {
-		global $wpdb;
-		return (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} p WHERE " . self::sources_where());
-	}
-
 	/**
 	 * Written by hand rather than as a WP_Query meta_query. WordPress joins each clause of
 	 * an OR meta_query on post_id alone, so every attachment is multiplied by all its meta
@@ -262,11 +256,6 @@ final class Worker {
 	}
 
 	/**
-	 * `timber_avif/changed`, with the attachments whose markup the passes since the last call
-	 * changed: a modern set that became complete, a crop or a width built, copies of a
-	 * replaced file dropped. A page cache that holds a page showing one of them is stale.
-	 */
-	/**
 	 * Note an attachment whose markup changed outside a worker pass — copies of a replaced
 	 * file dropped. Announced once, at the end of the request: an import that replaces five
 	 * hundred files makes one call, not five hundred.
@@ -276,6 +265,11 @@ final class Worker {
 		if (!has_action('shutdown', [self::class, 'announce'])) add_action('shutdown', [self::class, 'announce'], 5);
 	}
 
+	/**
+	 * `timber_avif/changed`, with the attachments whose markup the passes since the last call
+	 * changed: a modern set that became complete, a crop or a width built, copies of a
+	 * replaced file dropped. A page cache that holds a page showing one of them is stale.
+	 */
 	public static function announce(): void {
 		if (!self::$changed) return;
 		$ids = array_values(array_unique(self::$changed));
@@ -432,7 +426,6 @@ final class Worker {
 		}
 
 		$index[$format] = $entries;
-		$index['v'] = 1;
 		[$crops, $extra] = self::made_built($targets, $dir);
 		if ($crops) $index['crops'] = $crops; else unset($index['crops']);
 		if ($extra) $index['extra'] = $extra; else unset($index['extra']);
@@ -459,7 +452,6 @@ final class Worker {
 	 * were made from (Index::source_changed()).
 	 */
 	private static function finish(int $id, array $index, string $issue = '', bool $retry = false): bool {
-		$index['v'] = 1;
 		unset($index['remake']);
 		$attached = get_attached_file($id);
 		if ($attached && is_file($attached)) $index['source'] = Index::source_record($attached);

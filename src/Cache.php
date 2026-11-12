@@ -35,7 +35,10 @@ final class Cache {
 	public static function changed(array $ids): void {
 		$ids = array_values(array_filter(array_map('intval', $ids)));
 		if (!$ids || !self::available()) return;
-		if (count($ids) > self::MAX_PAGES) {
+		// The same while many images are still to convert: through a backlog every pass ran the
+		// scans below, unindexed, for a handful of images. A full purge runs at most once per
+		// INTERVAL, and once more when the queue empties.
+		if (count($ids) > self::MAX_PAGES || Worker::count_pending() > self::MAX_PAGES) {
 			self::purge_all();
 			return;
 		}

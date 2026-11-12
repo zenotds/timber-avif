@@ -5,7 +5,8 @@ namespace TimberAVIF\Optimize;
 /**
  * The variables a template sees while Templates follows it, scoped as Twig scopes them: one
  * frame per `for` loop, whose own variables go when the loop ends, while a variable of the
- * template set inside the loop keeps its new value after it.
+ * template set inside the loop keeps its new value after it; one per `with` or block, where
+ * everything set goes when it ends.
  *
  * A `set` replaces a value only where it surely runs — outside any `if` or loop — and never
  * one this template set before; otherwise it adds to what the name could be. So a value set
@@ -15,6 +16,8 @@ namespace TimberAVIF\Optimize;
 final class Env {
 	/** @var array<int, array<string, Value>> */
 	private array $frames = [[]];
+	/** @var array<int, bool> Frames that are a scope of their own, by index: true for `with … only`, which sees nothing below. */
+	private array $scopes = [];
 	/** @var array<string, true> Names this template has set. */
 	private array $local = [];
 	// How many `if` and `for` blocks the template is inside.
@@ -23,6 +26,7 @@ final class Env {
 	public function get(string $name): ?Value {
 		for ($i = count($this->frames) - 1; $i >= 0; $i--) {
 			if (isset($this->frames[$i][$name])) return $this->frames[$i][$name];
+			if (!empty($this->scopes[$i])) break;
 		}
 		return null;
 	}
@@ -33,12 +37,13 @@ final class Env {
 
 	/** `{% set name = value %}`. */
 	public function add(string $name, Value $value): void {
-		// Written where the name lives: a loop's frame only if it was new there.
+		// Written where the name lives: a loop's frame only if it was new there, a scope's always.
 		$frame = count($this->frames) - 1;
 		for ($i = $frame; $i >= 0; $i--) {
 			if (isset($this->frames[$i][$name])) { $frame = $i; break; }
+			if (isset($this->scopes[$i])) break;
 		}
-		$current = $this->frames[$frame][$name] ?? null;
+		$current = $this->get($name);
 		$keep = $current && ($this->conditional > 0 || isset($this->local[$name]));
 		$this->frames[$frame][$name] = $keep ? $current->union($value) : $value;
 		$this->local[$name] = true;
@@ -56,21 +61,37 @@ final class Env {
 		$this->frames[] = [];
 	}
 
+	/** `{% with %}` or a block: what is set in it goes when it ends. */
+	public function scope(bool $only = false): void {
+		$this->push();
+		$this->scopes[count($this->frames) - 1] = $only;
+	}
+
 	public function pop(): void {
-		if (count($this->frames) > 1) array_pop($this->frames);
+		if (count($this->frames) > 1) {
+			unset($this->scopes[count($this->frames) - 1]);
+			array_pop($this->frames);
+		}
 	}
 
 	/** Everything visible now, in one frame: what an include without `only` passes on. */
 	public function copy(): self {
 		$env = new self();
-		foreach ($this->frames as $frame) foreach ($frame as $name => $value) $env->frames[0][$name] = $value;
+		foreach ($this->visible() as $frame) foreach ($frame as $name => $value) $env->frames[0][$name] = $value;
 		return $env;
 	}
 
 	public function hash(): string {
 		$flat = [];
-		foreach ($this->frames as $frame) foreach ($frame as $name => $value) $flat[$name] = $value->signature();
+		foreach ($this->visible() as $frame) foreach ($frame as $name => $value) $flat[$name] = $value->signature();
 		ksort($flat);
 		return md5(serialize($flat));
+	}
+
+	/** The frames from the innermost `with … only` up. */
+	private function visible(): array {
+		$from = 0;
+		foreach ($this->scopes as $i => $only) if ($only) $from = $i;
+		return array_slice($this->frames, $from);
 	}
 }
